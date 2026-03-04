@@ -123,3 +123,15 @@
 		};
 	};
 };
+
+&qusb_phy_0 {
+	status = "okay";
+};
+
+&ssphy_0 {
+	status = "okay";
+};
+
+&usb_0 {
+	status = "okay";
+};
