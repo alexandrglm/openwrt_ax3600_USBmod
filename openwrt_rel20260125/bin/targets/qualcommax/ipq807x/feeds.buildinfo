@@ -1,8 +1,0 @@
-src-git packages https://github.com/openwrt/packages.git^3dd1f337ebb04c38c385a379730f10ee3fa7a305
-src-git luci https://github.com/openwrt/luci.git^e81c0637e275b5d65a81ded69b43118563803def
-src-git routing https://github.com/openwrt/routing.git^7c432d2e09a9c79a862c2d8c11725acee96f0334
-src-git telephony https://github.com/openwrt/telephony.git^a001cfba33556273cd599868a34b9447aeda0539
-src-git video https://github.com/openwrt/video.git^094bf58da6682f895255a35a84349a79dab4bf95
-src-git nss_packages https://github.com/AgustinLorenzo/nss-packages.git^ba5ed216b7ec16421e2a420b433bed1cfc383dd9
-src-git sqm_scripts_nss https://github.com/qosmio/sqm-scripts-nss.git^4b4ed8639229be5e70cf94b73cdf7dbc09e66d5d
-src-git qosmio https://github.com/qosmio/packages-extra.git^1ab19925f59ebb9c3eea7373386957d6607d7bfa
