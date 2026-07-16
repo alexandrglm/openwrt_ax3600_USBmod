@@ -1,0 +1,7 @@
+[ "$ACTION" = "add" -o "$ACTION" = "remove" ]; then
+        case "$DEVNAME" in
+                mmcblk*) exit 0 ;;
+                *)
+                /sbin/block hotplug ;;
+        esac
+
