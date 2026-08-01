@@ -72,17 +72,10 @@ static char *nss_mirror_ctl_read_nextarg(char **buf_ptr)
 /*
  * nss_mirror_ctl_read_value()
  *	API to read a value of the param in the command.
+ *
+ * REMOVED
  */
-static char *nss_mirror_ctl_read_value(char **buf_ptr, char **value_ptr, char *delim)
-{
-	*value_ptr = nss_mirror_ctl_read_nextarg(buf_ptr);
 
-	if (!(*value_ptr)) {
-		return NULL;
-	}
-
-	return strsep(value_ptr, delim);
-}
 
 /*
  * nss_mirror_ctl_convert_char_to_u32()
