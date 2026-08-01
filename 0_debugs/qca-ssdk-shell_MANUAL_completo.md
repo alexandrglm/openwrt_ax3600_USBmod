@@ -40,6 +40,7 @@
 36. Atheros Tag
 37. Debug
 38. Device
+39. ACL
 
 ---
 
@@ -355,9 +356,18 @@ ssdk_sh portVlan IsolGroup set <isol_group_id> <isol_group_bmp>
 
 ---
 
-## 4. FDB
+## 4. FDB (FORWARDING DATABASE)
 
 Tabla de reenvío (Forwarding Database).
+```bash
+# Añadir entrada FDB con cpycpu
+ssdk_sh fdb entry add <mac> <port> cpycpu
+# PENDIENTE: No fuerza a CPU, ver deps, ver código, ver broken=1
+
+# Ver entradas
+ssdk_sh fdb entry show
+```
+
 
 ### Comandos:
 
@@ -931,7 +941,31 @@ ssdk_sh misc framecrc set <enable|disable>
 
 Comandos de capa 3.
 
+### 17.1 IP Global Control
 ### Comandos:
+
+```bash
+# Ver estado global de IP
+ssdk_sh ip globalctrl get
+
+# Setear parámetros
+ssdk_sh ip globalctrl set <params>
+
+# Ejemplo probado:
+ssdk_sh ip globalctrl set rdtcpu no rdtcpu no rdtcpu no rdtcpu no rdtcpu yes yes no
+# Resultado: icmp_rdt_action pasó de 0x0 a 0x3 (rdtcpu)
+```
+
+### 17.2 IP HOSTENTRY (FDB)
+
+```bash
+# Añadir entrada FDB (intento fallido)
+ssdk_sh ip hostentry add <params>
+# PENDIENTE -> Recabar la sintáxis exacta de los argumentos de funciones en su código
+
+# Ver entradas
+ssdk_sh ip hostentry show
+```
 
 ```bash
 # Host Entry
@@ -1031,11 +1065,88 @@ ssdk_sh ip globalctrl set <mru_fail_action> <mru_deacclr_en> <mtu_fail_action> <
 
 ---
 
-## 18. FLOW
+## 18. FLOW (Gestión de flujos)
 
-Gestión de flujos.
+
+### Flow Management - Type 0 (Puertos físicos)
+
+| Puerto | frag_bypass | tcp_spec_bypass | all_bypass | key_sel | miss_action |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| WAN (0) | 0 | 0 | 0 | 0 | 0 |
+| LAN1 (1) | 0 | 0 | 0 | 0 | /10 |
+| LAN2 (2) | 0 | 0 | 0 | 1 | 0 |
+| LAN3 (3) | 0 | 0 | 0 | 0 | /10 |
+| CPU (4) | - | - | - | - | - |
+
+### Flow Management - Type 1
+
+| Puerto | key_sel | miss_action |
+| :--- | :---: | :---: |
+| WAN (0) | 0 | 0 |
+| LAN1 (1) | 0 | 0 |
+| LAN2 (2) | 1 | 0 |
+| LAN3 (3) | 0 | 0 |
+
+### Flow Management - Type 2
+
+| Puerto | key_sel | miss_action |
+| :--- | :---: | :---: |
+| WAN (0) | 0 | 3 |
+| LAN1 (1) | 0 | 3 |
+| LAN2 (2) | 1 | 3 |
+| LAN3 (3) | 0 | 3 |
+
+### Valores de miss_action
+- 0 = Drop
+- 3 = Forward to CPU
+
+
 
 ### Comandos:
+```bash
+# Sintaxis
+ssdk_sh flow mgmt get <type> <dir>
+ssdk_sh flow mgmt set <type> <dir> <frag_bypass> <tcp_spec_bypass> <all_bypass> <miss_action>
+
+# Parámetros:
+# type: 0, 1, 2 (0=puerto físico, 1=VLAN/bridge?, 2=algo más)
+# dir: 0-4 (0=WAN, 1=LAN1, 2=LAN2, 3=LAN3, 4=CPU/NSS)
+# frag_bypass: no/no/yes
+# tcp_spec_bypass: no/no/yes
+# all_bypass: no/no/yes
+# miss_action: 0 (drop), 1, 2, 3 (forward to CPU)
+
+# Ejemplos probados:
+ssdk_sh flow mgmt get 0 0      # WAN?
+ssdk_sh flow mgmt get 0 1      # LAN1
+ssdk_sh flow mgmt get 0 2      # LAN2
+ssdk_sh flow mgmt get 0 3      # LAN3
+ssdk_sh flow mgmt get 0 4      # CPU/NSS?
+
+ssdk_sh flow mgmt get 1 0      # Type 1, WAN?
+ssdk_sh flow mgmt get 1 1      # Type 1, LAN1
+ssdk_sh flow mgmt get 1 2      # Type 1, LAN2
+ssdk_sh flow mgmt get 1 3      # Type 1, LAN3
+ssdk_sh flow mgmt get 1 4      # Type 1, CPU?
+
+ssdk_sh flow mgmt get 2 0      # Type 2, WAN?
+ssdk_sh flow mgmt get 2 1      # Type 2, LAN1
+ssdk_sh flow mgmt get 2 2      # Type 2, LAN2
+ssdk_sh flow mgmt get 2 3      # Type 2, LAN3
+ssdk_sh flow mgmt get 2 4      # Type 2, CPU?
+
+# Setear valores
+ssdk_sh flow mgmt set 0 3 forward no no no 0   # all_bypass=0, miss_action=0
+ssdk_sh flow mgmt set 0 3 forward no no no 3   # miss_action=3 (CPU)
+
+# Resultados:
+# miss_action=0 → Drop
+# miss_action=3 → Forward to CPU
+# all_bypass=0 → No bypass global
+# key_sel=0 → Sin selección especial
+# key_sel=1 → Algo específico (cambió con el comando)
+```
+
 
 ```bash
 # Estado
@@ -1638,13 +1749,40 @@ ssdk_sh q
 
 ---
 
-## NOTAS IMPORTANTES
+## 38. ACL
+
+```bash
+# Ver estado de ACL
+ssdk_sh acl status get
+# PENDIENTE: Test con FW >11.4, "en teoría" no aplica a ipq80x, `qca-nss-dvr-acl` sí podŕía ser adaptado
+
+# Ver reglas ACL
+ssdk_sh acl rule show
+PENDIENTE: Test con FW >11.4, "en teoría" no aplica a ipq80x, `qca-nss-dvr-acl` sí podŕía ser adaptado
+
+ssdk_sh acl rule show 0
+ssdk_sh acl rule show 1
+ssdk_sh acl rule show 0 0
+ssdk_sh acl rule show 1 0
+ssdk_sh acl rule show yes
+ssdk_sh acl rule show help
+# TODOS: invalid or incomplete command en ipq807x
+
+```
+---
+
+## Notas Importantes
+
+- No existe documentación de la shell, todos los usos, comandos y parámetros se han extraído del análisis del código fuente.
+- Algunas opciones no están disposnibles según plataforma, según firmware utilizado, etc.
+- Conviene repasar su código fuente para terminar algunas implementaciones que se dejaron a medias
 
 ### Sintaxis General:
 
 - Los comandos siguen el formato: `ssdk_sh <comando> <subcomando> <acción> [parámetros]`
 - Los parámetros entre `<>` son obligatorios
 - Los parámetros entre `[]` son opcionales
+- Algunos comandos requieren todos los argumentos posicionales explíticos (más de 30 argumentos)
 
 ### Parámetros Comunes:
 
@@ -1661,7 +1799,8 @@ ssdk_sh q
 
 - Hexadecimal: `0x` prefijo
 - Decimal: Sin prefijo
-- Binario: No soportado directamente
+- Binario: No soportado directamente (nunca son numerales, solo `YES/Y/NO/N`)
+
 
 ### Modos de Operación:
 
@@ -1670,8 +1809,9 @@ ssdk_sh q
 
 ### Interfaz de Usuario:
 
-- Los comandos `help`, `quit`, `q` están disponibles en todo momento
+- La propia interfaz está rota (no permite borrado, y otros fallos); comando se ejecutan perfectamente desde Ash vía `$ ssdk_sh <comando> ...`
 - El shell es sensible a mayúsculas/minúsculas (case-insensitive)
+- Los comandos `quit` / `q`, disponibles para salir, `help`apenas aporta información, pero la UX es muy buena ante errores de parámetros (indica en cada caso el motivo de error)
 
 ---
 
@@ -1699,6 +1839,33 @@ ssdk_sh vlan member add 100 3 tagged
 ```
 
 ### Mirroring de Tráfico:
+
+```bash
+# Configurar analyzer point (punto de mirroring)
+ssdk_sh mirror analyPt set <0-7>
+# 0 = Puerto físico
+# 1 = VLAN
+# 2 = DSA
+# 3+ = Otros
+
+# Ver configuración actual
+ssdk_sh mirror analyPt get 0
+
+# Configurar mirror en ingress para un puerto
+ssdk_sh mirror ptIngress set <phyad> enable
+ssdk_sh mirror ptIngress set 3 enable   # lan3
+
+# Ver estado de mirror en un puerto
+ssdk_sh mirror ptIngress get 3
+
+# Configurar mirror en egress
+ssdk_sh mirror ptEgress set <phyad> enable
+ssdk_sh mirror ptEgress get <phyad>
+
+# Deshabilitar mirror
+ssdk_sh mirror ptIngress set 3 disable
+```
+
 
 ```bash
 # Configurar puerto 6 como análisis
