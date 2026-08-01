@@ -674,7 +674,30 @@ ssdk_sh leaky ptMcMode set <port_id> <enable|disable>
 
 Mirroring de tráfico.
 
-### Comandos:
+- ✅ Compilado (`IN_IP=TRUE` en config)
+- ✅ Parcialmente funcional en AX3600
+- ❌ NO hay comandos para mirroring de VLAN
+- ❌ NO hay comandos para mirroring de DSA
+- ❌ NO hay comandos para mirroring de puertos virtuales
+- ❌ NO hay comandos para mirroring de tráfico offload
+
+
+
+### Comandos de Mirroring
+
+| Comando | Sintaxis | Descripción |
+| :--- | :--- | :--- |
+| **analyPtset** | `<port_id>` | Configurar puerto de análisis (mirror destination) |
+| **analyPtget** | `-` | Obtener puerto de análisis actual |
+| **ptIngressset** | `<port_id> <enable|disable>` | Activar/desactivar mirror de ingreso en puerto |
+| **ptIngressget** | `<port_id>` | Ver estado de mirror de ingreso |
+| **ptEgressset** | `<port_id> <enable|disable>` | Activar/desactivar mirror de egreso en puerto |
+| **ptEgressget** | `<port_id>` | Ver estado de mirror de egreso |
+| **analyCfgset** | `<both|ingress|egress>` | Configurar dirección de análisis |
+| **analyCfgget** | `-` | Ver configuración de análisis |
+
+
+
 
 ```bash
 # Puerto de análisis
@@ -942,7 +965,30 @@ ssdk_sh misc framecrc set <enable|disable>
 Comandos de capa 3.
 
 ### 17.1 IP Global Control
-### Comandos:
+
+
+
+- ✅ Compilado (`IN_IP=TRUE` en config)
+- ✅ Parcialmente funcional en AX3600
+
+
+| Comando | Sintaxis / Acción | Estado | Notas |
+| :--- | :--- | :--- | :--- |
+| **globalctrlset** | `<12 parámetros>` | ✅ Funcional | CRÍTICO, controla bypass |
+| **globalctrlget** | `-` | ✅ Funcional | Ver configuración actual |
+| **routestatusset** | `<enable|disable>` | ✅ Funcional | Activar/desactivar ruteo |
+| **hostentryadd** | `-` | ❓ SINTAXIS VACÍA | Hay que investigar |
+
+### Valores posibles
+
+| Parámetro | Valores |
+| :--- | :--- |
+| **mru_fail_action** | `forward \| drop \| rdtcpu \| admit_all` |
+| **mtu_fail_action** | `forward \| drop \| rdtcpu \| admit_all` |
+| **icmp_rdt_action** | `forward \| drop \| rdtcpu \| admit_all` |
+| **prefix_bc_action** | `forward \| drop \| rdtcpu \| admit_all` |
+| ***_deacclr_en** | `yes \| no` |
+| **hash_mode_\*** | `0-3` |
 
 ```bash
 # Ver estado global de IP
@@ -1067,6 +1113,29 @@ ssdk_sh ip globalctrl set <mru_fail_action> <mru_deacclr_en> <mtu_fail_action> <
 
 ## 18. FLOW (Gestión de flujos)
 
+- ✅ Compilado (`IN_FLOW=TRUE` en config)
+- ✅ Funcional en AX3600
+
+### Comandos Críticos para Offload
+
+| Comando | Sintaxis | Estado | Notas |
+| :--- | :--- | :--- | :--- |
+| **mgmtset** | `<type> <dir>` | ⚠️ SINTAXIS INCOMPLETA | Ver nota abajo |
+| **mgmtget** | `<type> <dir>` | ✅ Funcional | - |
+| **statusset** | `<status>` | ✅ Funcional | Activar/desactivar flow |
+| **entryadd** | `<add_mode>` | ❓ SINTAXIS VACÍA | Hay que investigar |
+
+### ⚠️ ¡IMPORTANTE! Sintaxis real de `flow mgmt set`
+
+`flow mgmt set` acepta MÁS parámetros de los que muestra la ayuda:
+
+
+```bash
+# La sintaxis REAL es:
+
+ssdk_sh flow mgmt set <type> <dir> <miss_action> <frag_bypass_en> <tcpspec_bypass_en> <all_bypass_en> <key_sel>
+```
+
 
 ### Flow Management - Type 0 (Puertos físicos)
 
@@ -1145,6 +1214,7 @@ ssdk_sh flow mgmt set 0 3 forward no no no 3   # miss_action=3 (CPU)
 # all_bypass=0 → No bypass global
 # key_sel=0 → Sin selección especial
 # key_sel=1 → Algo específico (cambió con el comando)
+# key_sel=2 → Otro modo aún no documentado
 ```
 
 
@@ -1751,9 +1821,17 @@ ssdk_sh q
 
 ## 38. ACL
 
+
+- ✅ Compilado (`IN_ACL=TRUE` en config)
+- ❌ NO FUNCIONAL en AX3600 (no disponible en firmware build .config)
+
+- Hay que invesigar 
+- El core `qca-ssdk` no tiene soporte ACL para IPQ8074 y firm de NSS antiguo (testado en FW 11.4.0.5)
+
 ```bash
 # Ver estado de ACL
 ssdk_sh acl status get
+
 # PENDIENTE: Test con FW >11.4, "en teoría" no aplica a ipq80x, `qca-nss-dvr-acl` sí podŕía ser adaptado
 
 # Ver reglas ACL
