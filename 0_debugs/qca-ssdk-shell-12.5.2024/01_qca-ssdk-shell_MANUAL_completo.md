@@ -1,5 +1,52 @@
 # MANUAL COMPLETO DE SSDK SHELL (ssdk_sh)
 
+- FECHA: 2026, Agosto, 02.
+
+
+## Notas Importantes
+
+- No existe documentación de la shell, todos los usos, comandos y parámetros se han extraído del análisis del código fuente.
+- Algunas opciones no están disposnibles según plataforma, según firmware utilizado, etc.
+- Conviene repasar su código fuente para terminar algunas implementaciones que se dejaron a medias
+
+### Sintaxis General:
+
+- Los comandos siguen el formato: `ssdk_sh <comando> <subcomando> <acción> [parámetros]`
+- Los parámetros entre `<>` son obligatorios
+- Los parámetros entre `[]` son opcionales
+- Algunos comandos requieren todos los argumentos posicionales explíticos (más de 30 argumentos)
+
+### Parámetros Comunes:
+
+- `port_id`: Número de puerto (0-N)
+- `enable|disable`: Activar/Desactivar
+- `forward|drop|cpycpu|rdtcpu`: Acciones de reenvío
+- `queue_id`: ID de cola (0-3, 0-5, etc.)
+- `vlan_id`: ID de VLAN (1-4095)
+- `mac_addr`: Dirección MAC en formato xx-xx-xx-xx-xx-xx
+- `ip4_addr`: Dirección IPv4 en formato x.x.x.x
+- `ip6_addr`: Dirección IPv6 en formato xxxx::xxxx
+
+### Valores Numéricos:
+
+- Hexadecimal: `0x` prefijo
+- Decimal: Sin prefijo
+- Binario: No soportado directamente (nunca son numerales, solo `YES/Y/NO/N`)
+
+
+### Modos de Operación:
+
+- La mayoría de los comandos tienen modo `set` y `get`
+- Algunos tienen modos especiales como `add`, `del`, `find`, etc.
+
+### Interfaz de Usuario:
+
+- La propia interfaz está rota (no permite borrado, y otros fallos); comando se ejecutan perfectamente desde Ash vía `$ ssdk_sh <comando> ...`
+- El shell es sensible a mayúsculas/minúsculas (case-insensitive)
+- Los comandos `quit` / `q`, disponibles para salir, `help`apenas aporta información, pero la UX es muy buena ante errores de parámetros (indica en cada caso el motivo de error)
+
+---
+
 ## ÍNDICE DE COMANDOS
 
 1. Port Control (Gestión de Puertos)
@@ -1847,49 +1894,6 @@ ssdk_sh acl rule show help
 # TODOS: invalid or incomplete command en ipq807x
 
 ```
----
-
-## Notas Importantes
-
-- No existe documentación de la shell, todos los usos, comandos y parámetros se han extraído del análisis del código fuente.
-- Algunas opciones no están disposnibles según plataforma, según firmware utilizado, etc.
-- Conviene repasar su código fuente para terminar algunas implementaciones que se dejaron a medias
-
-### Sintaxis General:
-
-- Los comandos siguen el formato: `ssdk_sh <comando> <subcomando> <acción> [parámetros]`
-- Los parámetros entre `<>` son obligatorios
-- Los parámetros entre `[]` son opcionales
-- Algunos comandos requieren todos los argumentos posicionales explíticos (más de 30 argumentos)
-
-### Parámetros Comunes:
-
-- `port_id`: Número de puerto (0-N)
-- `enable|disable`: Activar/Desactivar
-- `forward|drop|cpycpu|rdtcpu`: Acciones de reenvío
-- `queue_id`: ID de cola (0-3, 0-5, etc.)
-- `vlan_id`: ID de VLAN (1-4095)
-- `mac_addr`: Dirección MAC en formato xx-xx-xx-xx-xx-xx
-- `ip4_addr`: Dirección IPv4 en formato x.x.x.x
-- `ip6_addr`: Dirección IPv6 en formato xxxx::xxxx
-
-### Valores Numéricos:
-
-- Hexadecimal: `0x` prefijo
-- Decimal: Sin prefijo
-- Binario: No soportado directamente (nunca son numerales, solo `YES/Y/NO/N`)
-
-
-### Modos de Operación:
-
-- La mayoría de los comandos tienen modo `set` y `get`
-- Algunos tienen modos especiales como `add`, `del`, `find`, etc.
-
-### Interfaz de Usuario:
-
-- La propia interfaz está rota (no permite borrado, y otros fallos); comando se ejecutan perfectamente desde Ash vía `$ ssdk_sh <comando> ...`
-- El shell es sensible a mayúsculas/minúsculas (case-insensitive)
-- Los comandos `quit` / `q`, disponibles para salir, `help`apenas aporta información, pero la UX es muy buena ante errores de parámetros (indica en cada caso el motivo de error)
 
 ---
 
