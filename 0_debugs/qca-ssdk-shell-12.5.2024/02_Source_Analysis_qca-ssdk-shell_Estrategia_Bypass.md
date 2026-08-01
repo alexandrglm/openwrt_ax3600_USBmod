@@ -541,8 +541,39 @@ Para otros comandos no disponibles, la causa puede ser que el hardware no los so
 
 ---
 
-## 4. Estrategia para capturar tráfico offload (resumen)
+## 4. Estrategia para capturar tráfico offload
 
+
+### Recabar datos previos
+
+#### COnfigs
+
+```bash
+# Leer registros actuales
+flow mgmt get miss_action <port>
+flow mgmt get bypass <port>
+ip globalctrl get <port> ipv4_de_acce
+ip globalctrl get <port> ipv6_de_acce
+
+# Verificar estadísticas de flujos
+flow stats get <port>
+ip stats get <port>
+qm stats get <queue>
+```
+
+#### Counters
+```bash
+# Verificar contadores NSS
+cat /proc/sys/dev/nss/ipq8074/ipq8074/stats
+
+# Verificar flujos en CPU
+cat /proc/sys/net/nss/ipq8074/ipq8074_flow_mgr
+
+# Verificar paquetes enviados a CPU
+cat /sys/kernel/debug/nss/ipq8074/ipq8074/stats
+```
+
+---
 ### TEST 1
 
 1.  **Desactivar el offload por puerto** usando `flow mgmt set`:
@@ -588,3 +619,61 @@ Para otros comandos no disponibles, la causa puede ser que el hardware no los so
     ssdk_sh mirror ptIngress set 3 enable
     ```
 ---
+
+### TEST 2:  Bypass por stack IP
+```
+# 1. Desactivar aceleración IPv4/IPv6
+ip globalctrl set all ipv4_de_acce 1
+ip globalctrl set all ipv6_de_acce 1
+
+# 2. Forzar todos los flujos a CPU
+flow mgmt set miss_action all 3
+flow mgmt set bypass all 1
+
+# 3. Redirigir paquetes de control a CPU
+ctrlpkt appProfile set all 2 0xFFFFFFFF
+
+# 4. Desactivar hash lookup
+flow mgmt set hash_en all 0
+
+# 5. Redirigir colas a CPU (si está disponible)
+qm queue set all enq_cpu 1
+qm queue set all deq_cpu 1
+```
+
+---
+
+### TEST 3:  Bypass selectivo (Por flow, stack IP, a nivel de aplicación)
+```bash
+# 1. Redirigir solo flujos específicos a CPU
+flow mgmt set miss_action all 3  # Flujos no encontrados → CPU
+flow mgmt set hash_en all 0      # Desactivar lookup de hash
+
+# 2. Desactivar aceleración para IPv4 solo
+ip globalctrl set all ipv4_de_acce 1
+
+# 3. Redirigir protocolos específicos
+ctrlpkt appProfile set ARP 2 0xFFFFFFFF
+ctrlpkt appProfile set DHCP 2 0xFFFFFFFF
+ctrlpkt appProfile set OSPF 2 0xFFFFFFFF
+```
+
+---
+
+### TEST 4:  Por puerto
+```bash
+# 1. Configurar bypass por puerto
+flow mgmt set bypass <port> 1
+
+# 2. Desactivar ruteo para ese puerto
+ip globalctrl set <port> ipv4_uc_route_en 0
+ip globalctrl set <port> ipv6_uc_route_en 0
+
+# 3. Redirigir todo el tráfico del puerto a CPU
+flow mgmt set miss_action <port> 3
+```
+
+---
+
+
+
