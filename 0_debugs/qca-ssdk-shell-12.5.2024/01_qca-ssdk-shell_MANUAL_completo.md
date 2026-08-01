@@ -1,52 +1,5 @@
 # MANUAL COMPLETO DE SSDK SHELL (ssdk_sh)
 
-- FECHA: 2026, Agosto, 02.
-
-
-## Notas Importantes
-
-- No existe documentación de la shell, todos los usos, comandos y parámetros se han extraído del análisis del código fuente.
-- Algunas opciones no están disposnibles según plataforma, según firmware utilizado, etc.
-- Conviene repasar su código fuente para terminar algunas implementaciones que se dejaron a medias
-
-### Sintaxis General:
-
-- Los comandos siguen el formato: `ssdk_sh <comando> <subcomando> <acción> [parámetros]`
-- Los parámetros entre `<>` son obligatorios
-- Los parámetros entre `[]` son opcionales
-- Algunos comandos requieren todos los argumentos posicionales explíticos (más de 30 argumentos)
-
-### Parámetros Comunes:
-
-- `port_id`: Número de puerto (0-N)
-- `enable|disable`: Activar/Desactivar
-- `forward|drop|cpycpu|rdtcpu`: Acciones de reenvío
-- `queue_id`: ID de cola (0-3, 0-5, etc.)
-- `vlan_id`: ID de VLAN (1-4095)
-- `mac_addr`: Dirección MAC en formato xx-xx-xx-xx-xx-xx
-- `ip4_addr`: Dirección IPv4 en formato x.x.x.x
-- `ip6_addr`: Dirección IPv6 en formato xxxx::xxxx
-
-### Valores Numéricos:
-
-- Hexadecimal: `0x` prefijo
-- Decimal: Sin prefijo
-- Binario: No soportado directamente (nunca son numerales, solo `YES/Y/NO/N`)
-
-
-### Modos de Operación:
-
-- La mayoría de los comandos tienen modo `set` y `get`
-- Algunos tienen modos especiales como `add`, `del`, `find`, etc.
-
-### Interfaz de Usuario:
-
-- La propia interfaz está rota (no permite borrado, y otros fallos); comando se ejecutan perfectamente desde Ash vía `$ ssdk_sh <comando> ...`
-- El shell es sensible a mayúsculas/minúsculas (case-insensitive)
-- Los comandos `quit` / `q`, disponibles para salir, `help`apenas aporta información, pero la UX es muy buena ante errores de parámetros (indica en cada caso el motivo de error)
-
----
-
 ## ÍNDICE DE COMANDOS
 
 1. Port Control (Gestión de Puertos)
@@ -728,6 +681,13 @@ Mirroring de tráfico.
 - ❌ NO hay comandos para mirroring de puertos virtuales
 - ❌ NO hay comandos para mirroring de tráfico offload
 
+### Contexto con QCA-SSDK
+
+* Desde la perspectiva de HPPE:
+
+    - ** Solo hay registros para mirroring de puertos físicos (port_mirror_u), no para VLAN, DSA o puertos virtuales.**
+    
+    
 
 
 ### Comandos de Mirroring
@@ -756,8 +716,28 @@ ssdk_sh mirror ptEgress set <port_id> <enable|disable>
 
 # Configuración de análisis
 ssdk_sh mirror analyCfg set <port_id> <priority>
+
+
 ```
 
+
+    
+```bash
+mirror_analyzer_u {
+    in_analyzer_port:5,
+    eg_analyzer_port:5
+}
+
+port_mirror_u {
+    in_mirr_en:1,
+    eg_mirr_en:1
+}
+
+hppe_mirror_analyzer_get(dev_id, &value)
+hppe_mirror_analyzer_set(dev_id, &value)
+hppe_port_mirror_get(dev_id, index, &value)
+hppe_port_mirror_set(dev_id, index, &value)
+```
 ---
 
 ## 10. RATE
@@ -1019,6 +999,69 @@ Comandos de capa 3.
 - ✅ Parcialmente funcional en AX3600
 
 
+### Contexto con QCA-SSDK
+
+#### Registro L3_ROUTE_CTRL
+**Dirección:** L3_ROUTE_CTRL_BASE
+
+| Campo | Bits | Valores | Descripción | Shell Command |
+| :--- | :---: | :--- | :--- | :--- |
+| ipv4_uc_route_en | 0 | 0=off, 1=on | Habilitar ruteo unicast IPv4 | `ip globalctrl set ipv4_uc_route_en` |
+| ipv6_uc_route_en | 1 | 0=off, 1=on | Habilitar ruteo unicast IPv6 | `ip globalctrl set ipv6_uc_route_en` |
+| ipv4_mc_route_en | 2 | 0=off, 1=on | Habilitar ruteo multicast IPv4 | `ip globalctrl set ipv4_mc_route_en` |
+| ipv6_mc_route_en | 3 | 0=off, 1=on | Habilitar ruteo multicast IPv6 | `ip globalctrl set ipv6_mc_route_en` |
+| ttl_dec_bypass | 4 | 0=off, 1=on | Bypass de decremento TTL | `ip globalctrl set ttl_dec_bypass` |
+| ipv4_l3_fwd_bypass | 5 | 0=off, 1=on | Bypass de forwarding IPv4 | `ip globalctrl set ipv4_l3_fwd_bypass` |
+| ipv6_l3_fwd_bypass | 6 | 0=off, 1=on | Bypass de forwarding IPv6 | `ip globalctrl set ipv6_l3_fwd_bypass` |
+| ipv4_de_acce | 7 | 0=off, 1=on | Desactivar aceleración IPv4 | `ip globalctrl set ipv4_de_acce` |
+| ipv6_de_acce | 8 | 0=off, 1=on | Desactivar aceleración IPv6 | `ip globalctrl set ipv6_de_acce` |
+| fragment_bypass | 9 | 0=off, 1=on | Bypass de fragmentación | `ip globalctrl set fragment_bypass` |
+| icmp_bypass | 10 | 0=off, 1=on | Bypass de ICMP | `ip globalctrl set icmp_bypass` |
+| redirect_cpu | 11 | 0=off, 1=on | Forzar redirección a CPU | NO EXPUESTO |
+| l3_filter_en | 12 | 0=off, 1=on | Habilitar filtrado L3 | NO EXPUESTO |
+
+
+*  Desde la perspectiva de HPPE:
+    - En `qca-ssdk`, `hppe_ip.c` muestra que hay múltiples formas de desactivar offload:
+        ```text
+        ttl_dec_bypass - Bypass del decremento de TTL
+        ipv4_uc_route_en - Desactivar ruteo unicast IPv4
+        ipv6_uc_route_en - Desactivar ruteo unicast IPv6
+        *_de_acce - Desactivar aceleración para varios casos
+        ```
+    
+    - **`ssdk_sh ip intf set` con `ttl_dec_bypass_en=no` y `ipv4_uc_route_en=no` deberían forzar el paso por CPU.
+    
+    - `redirect_cpu`. NO expuesto pero permite redirigir TODO el tráfico L3 a CPU
+    - `ipv4_de_acce` e `ipv6_de_acce`, ¿Desactivan aceleración?
+    - `reirect_cpu=1` + `ipv4_de_acce=1` para desactivación completa ??
+
+    
+
+* Sintáxis reaL:
+```bash
+
+```
+```text
+# 12 parámetros:
+
+mru_fail_action → ip_mru_check_fail
+mru_deacclr_en → ip_mru_check_fail_de_acce
+mtu_fail_action → ip_mtu_fail
+mtu_deacclr_en → ip_mtu_fail_de_acce
+mtu_nonfrag_fail_action → ip_mtu_df_fail
+mtu_nonfrag_deacclr_en → ip_mtu_df_fail_de_acce
+prefix_bc_action → ip_prefix_bc_cmd
+prefix_bc_deacclr_en → ip_prefix_bc_de_acce
+icmp_rdt_action → icmp_rdt_cmd
+icmp_rdt_deacclr_en → icmp_rdt_de_acce
+hash_mode_0 → host_hash_mode_0
+hash_mode_1 → host_hash_mode_1
+```
+
+
+
+
 | Comando | Sintaxis / Acción | Estado | Notas |
 | :--- | :--- | :--- | :--- |
 | **globalctrlset** | `<12 parámetros>` | ✅ Funcional | CRÍTICO, controla bypass |
@@ -1037,14 +1080,29 @@ Comandos de capa 3.
 | ***_deacclr_en** | `yes \| no` |
 | **hash_mode_\*** | `0-3` |
 
+
 ```bash
 # Ver estado global de IP
 ssdk_sh ip globalctrl get
 
+ip globalctrl set <port> ipv4_uc_route_en <0|1>
+ip globalctrl set <port> ipv6_uc_route_en <0|1>
+
+ip globalctrl set <port> ttl_dec_bypass <0|1>
+
+ip globalctrl set <port> ipv4_de_acce <0|1> 
+ip globalctrl set <port> ipv6_de_acce <0|1> 
+
+# ip intf set
+ip intf set <port> <vlan> <IP> <mask>
+    → Configura interfaz L3 con VLAN específica
+
 # Setear parámetros
 ssdk_sh ip globalctrl set <params>
-
+```
+```bash
 # Ejemplo probado:
+
 ssdk_sh ip globalctrl set rdtcpu no rdtcpu no rdtcpu no rdtcpu no rdtcpu yes yes no
 # Resultado: icmp_rdt_action pasó de 0x0 a 0x3 (rdtcpu)
 ```
@@ -1076,10 +1134,15 @@ ssdk_sh ip arplearn set <learnlocal|learnall>
 # IP/ARP Source Guard
 ssdk_sh ip ptipsrcguard set <port_id> <mac_ip|mac_ip_port|mac_ip_vlan|mac_ip_port_vlan|no_guard>
 ssdk_sh ip ptarpsrcguard set <port_id> <mac_ip|mac_ip_port|mac_ip_vlan|mac_ip_port_vlan|no_guard>
+```
 
+```bash
 # Route
 ssdk_sh ip routestatus set <enable|disable>
+```
 
+
+```bash
 # Interface MAC
 ssdk_sh ip intfentry set <entryid> <vrf_id> <vid_low> <vid_high> <mac_addr> <ip4_route> <ip6_route>
 ssdk_sh ip intfentry add <entryid> <vrf_id> <vid_low> <vid_high> <mac_addr> <ip4_route> <ip6_route>
@@ -1163,6 +1226,20 @@ ssdk_sh ip globalctrl set <mru_fail_action> <mru_deacclr_en> <mtu_fail_action> <
 - ✅ Compilado (`IN_FLOW=TRUE` en config)
 - ✅ Funcional en AX3600
 
+### Contexto con QCA-SSDK
+
+* Desde la perspectiva de HPPE:
+    - En `qca-ssdk`, `hppe_flow.c` muestra que hay 5 grupos de control (flow_ctl0 a flow_ctl4), y dentro de cada uno hay campos para:
+        ```text
+        miss_action (0=drop, 1=forward, 3=CPU)
+        bypass (1=bypass del procesamiento)
+        frag_bypass (bypass de fragmentos)
+        tcp_special (bypass de TCP especial)
+        key_sel (selección de clave de hash)
+        ```
+    - El comando `ssdk_sh flow mgmt set` con `miss_action=3` debería ser la forma correcta de enviar tráfico a CPU.
+    
+    
 ### Comandos Críticos para Offload
 
 | Comando | Sintaxis | Estado | Notas |
@@ -1182,7 +1259,21 @@ ssdk_sh ip globalctrl set <mru_fail_action> <mru_deacclr_en> <mtu_fail_action> <
 
 ssdk_sh flow mgmt set <type> <dir> <miss_action> <frag_bypass_en> <tcpspec_bypass_en> <all_bypass_en> <key_sel>
 ```
+```text
+    type → selecciona qué flow_ctrl1 (0-4)
 
+    dir → selecciona qué campo dentro del registro
+
+    miss_action → flow_ctlX_miss_action (0=drop, 1=forward, 3=CPU)
+
+    frag_bypass → flow_ctlX_frag_bypass
+
+    tcp_special → flow_ctlX_tcp_special
+
+    bypass → flow_ctlX_bypass
+
+    key_sel → flow_ctlX_key_sel
+```
 
 ### Flow Management - Type 0 (Puertos físicos)
 
@@ -1288,6 +1379,7 @@ ssdk_sh flow host del <del_mode>
 # Global Config
 ssdk_sh flow global set
 ```
+
 
 ---
 
@@ -1503,7 +1595,68 @@ ssdk_sh shaper flowshaperctrl set <head> <tail>
 
 Gestión de colas.
 
+
+### Contexto con QCA-SSDK
+
+#### Registro OQ_ENQ_OPR
+-   **Dirección:** `QM_OQ_ENQ_OPR_BASE + (queue * 0x4)`
+
+| Campo | Bits | Valores | Descripción | Shell Command |
+| :--- | :---: | :--- | :--- | :--- |
+| enq_disable | 0 | 0=off, 1=on | Deshabilitar encolado | `qm queue set enq_disable` |
+| enq_drop | 1 | 0=off, 1=on | Descartar al encolar | `qm queue set enq_drop` |
+| enq_bypass | 2 | 0=off, 1=on | Bypass de encolado | `qm queue set enq_bypass` |
+| enq_cpu | 3 | 0=off, 1=on | Enviar a CPU en vez de encolar | `qm queue set enq_cpu` |
+| drop_tail | 4 | 0=off, 1=on | Drop tail en cola | NO EXPUESTO |
+| drop_random | 5 | 0=off, 1=on | Drop random temprano | NO EXPUESTO |
+| red_en | 6 | 0=off, 1=on | Habilitar RED | NO EXPUESTO |
+
+
+#### Registro OQ_DEQ_OPR
+-   **Dirección:** `QM_OQ_DEQ_OPR_BASE + (queue * 0x4)`
+
+| Campo | Bits | Valores | Descripción | Shell Command |
+| :--- | :---: | :--- | :--- | :--- |
+| deq_drop | 0 | 0=off, 1=on | Descartar al desencolar | `qm queue set deq_drop` |
+| deq_cpu | 1 | 0=off, 1=on | Enviar a CPU al desencolar | `qm queue set deq_cpu` |
+| deq_bypass | 2 | 0=off, 1=on | Bypass de desencolado | `qm queue set deq_bypass` |
+
+* Desde la perspectiva de HPPE:
+
+    - En `qca-ssdk`, el archivo `hppe_qm.c` muestra:
+    
+        ```text
+        enq_disable - Deshabilitar encolado (forzar CPU)
+        deq_drop - Descartar al desencolar
+        Mapeo de colas por hash y prioridad
+        ```
+        
+    - **`ssdk_sh qm queue set <queue_id> enable` podría forzar ciertas colas a CPU**
+    
+    - `enq_cpu` y `deq_cpu` **NO expuestos, redirigen tráfico de cola a CPU**
+    - Las colas se mapean por hash, prioridad, y puerto
+    - `enq_cpu=1` + `deq_cpu=1` para redirección total de colas
+
+
+
+
+
+
+
 ### Comandos:
+
+#### SET
+```bash
+# qm queue set
+qm queue set <queue> enq_disable <0|1>
+qm queue set <queue> enq_drop <0|1>
+qm queue set <queue> deq_drop <0|1>
+
+qm queue set <queue> enq_cpu <0|1>      # NO expuesto
+qm queue set <queue> deq_cpu <0|1>      # NO expuesto
+qm queue set <queue> enq_bypass <0|1>   # NO expuesto
+```
+
 
 ```bash
 # Ucast Queue Base
@@ -1621,21 +1774,65 @@ ssdk_sh rsshash config set <hash_mask> <hash_fragment_mode> <hash_seed> <hash_si
 
 Paquetes de control.
 
+
+### Contexto con QCA-SSDK
+
+#### Registro APP_CTRL
+- **Dirección:** `CTRL_PKT_APP_CTRL_BASE + (app * 0x4)`
+
+| Campo | Bits | Valores | Descripción | Shell Command |
+| :--- | :---: | :--- | :--- | :--- |
+| cmd | 0-1 | 0=DROP, 1=FWD, 2=CPU, 3=TRAP | Acción para paquete de control | `ctrlpkt appProfile set` |
+| portbitmap | 2-15 | Bitmap de puertos | Puertos afectados | `ctrlpkt appProfile set` |
+
+
+
+
+
+* Desde la perspectiva de HPPE:
+    - En `qca-ssdk`, `hppe_ctrlpkt.c` muestra:
+    ```text
+    app_ctrl - Control de aplicaciones (EAPOL, PPPoE, IGMP, ARP, DHCP, etc.)
+    cmd - Comando para el paquete (forward, drop, CPU)
+    portbitmap - Puertos a los que aplicar
+    ```
+    - **`ssdk_sh ctrlpkt appProfile set` podría forzar paquetes de control a CPU**
+    
+    - **Protocolos soportados (apps):**
+        - ARP, DHCP, IGMP, MLD, STP, RSTP, MSTP, OSPF, PIM, etc.
+
+
+
 ### Comandos:
 
 ```bash
 # Ethernet Type Profile
 ssdk_sh ctrlpkt ethernetType set <profile_id> <ethernet_type> <ethernet_type_mask>
+```
 
+```bash
 # RFDB Profile
 ssdk_sh ctrlpkt rfdb set <profile_id>
+```
 
-# Application Profile
+
+```bash
+# ctrlpkt appProfile set
+ctrlpkt appProfile set <app> <cmd> <portbitmap>
+    → cmd: 0=DROP, 1=FWD, 2=CPU, 3=TRAP
+    → portbitmap: hex (ej: 0xFFFFFFFF para todos)
+    
+
+# Application Profile completo
 ssdk_sh ctrlpkt appProfile set <port_bitmap> <ethtype_profile_bitmap> <rfdb_profile_bitmap> <eapol_en> <pppoe_en> <igmp_en> <arp_request_en> <arp_response_en> <dhcp4_en> <dhcp6_en> <mld_en> <ip6ns_en> <ip6na_en> <ctrlpkt_profile_action> <sourceguard_bypass> <l2filter_bypass> <ingress_stp_bypass> <ingress_vlan_filter_bypass>
+```
 
+```bash
 # VP Group
 ssdk_sh ctrlpkt vpgroup set
+```
 
+```bash
 # Tunnel Decap
 ssdk_sh ctrlpkt tunneldecap set
 ```
@@ -1866,7 +2063,7 @@ ssdk_sh q
 
 ---
 
-## 38. ACL
+## 39. ACL
 
 
 - ✅ Compilado (`IN_ACL=TRUE` en config)
@@ -1874,6 +2071,31 @@ ssdk_sh q
 
 - Hay que invesigar 
 - El core `qca-ssdk` no tiene soporte ACL para IPQ8074 y firm de NSS antiguo (testado en FW 11.4.0.5)
+
+
+### Contexto con QCA-SSDK
+
+#### Registro ACL_CTRL
+- **Dirección:** `ACL_CTRL_BASE`
+
+| Campo | Bits | Valores | Descripción | Shell Command |
+| :--- | :---: | :--- | :--- | :--- |
+| acl_en | 0 | 0=off, 1=on | Habilitar ACL | `acl enable` |
+| rule_count | 1-15 | 0-32767 | Número de reglas | `acl rule set` |
+| default_action | 16-17 | 0=DROP, 1=FWD, 2=CPU, 3=TRAP | Acción por defecto | `acl default_action set` |
+
+
+- Desde la perspectiva de HPPE:
+    - ACL usa UDF para campos personalizados. Esto permitiría hacer match en casi cualquier campo del paquete.
+
+```bash
+# Comandos ACL (documentados pero no funcionales en AX3600)
+
+acl enable
+acl rule set <idx> <match> <action>
+acl default_action set <0|1|2|3>
+```
+
 
 ```bash
 # Ver estado de ACL
@@ -1894,6 +2116,52 @@ ssdk_sh acl rule show help
 # TODOS: invalid or incomplete command en ipq807x
 
 ```
+
+
+
+---
+
+## Notas Importantes
+
+- No existe documentación de la shell, todos los usos, comandos y parámetros se han extraído del análisis del código fuente.
+- Algunas opciones no están disposnibles según plataforma, según firmware utilizado, etc.
+- Conviene repasar su código fuente para terminar algunas implementaciones que se dejaron a medias
+
+### Sintaxis General:
+
+- Los comandos siguen el formato: `ssdk_sh <comando> <subcomando> <acción> [parámetros]`
+- Los parámetros entre `<>` son obligatorios
+- Los parámetros entre `[]` son opcionales
+- Algunos comandos requieren todos los argumentos posicionales explíticos (más de 30 argumentos)
+
+### Parámetros Comunes:
+
+- `port_id`: Número de puerto (0-N)
+- `enable|disable`: Activar/Desactivar
+- `forward|drop|cpycpu|rdtcpu`: Acciones de reenvío
+- `queue_id`: ID de cola (0-3, 0-5, etc.)
+- `vlan_id`: ID de VLAN (1-4095)
+- `mac_addr`: Dirección MAC en formato xx-xx-xx-xx-xx-xx
+- `ip4_addr`: Dirección IPv4 en formato x.x.x.x
+- `ip6_addr`: Dirección IPv6 en formato xxxx::xxxx
+
+### Valores Numéricos:
+
+- Hexadecimal: `0x` prefijo
+- Decimal: Sin prefijo
+- Binario: No soportado directamente (nunca son numerales, solo `YES/Y/NO/N`)
+
+
+### Modos de Operación:
+
+- La mayoría de los comandos tienen modo `set` y `get`
+- Algunos tienen modos especiales como `add`, `del`, `find`, etc.
+
+### Interfaz de Usuario:
+
+- La propia interfaz está rota (no permite borrado, y otros fallos); comando se ejecutan perfectamente desde Ash vía `$ ssdk_sh <comando> ...`
+- El shell es sensible a mayúsculas/minúsculas (case-insensitive)
+- Los comandos `quit` / `q`, disponibles para salir, `help`apenas aporta información, pero la UX es muy buena ante errores de parámetros (indica en cada caso el motivo de error)
 
 ---
 
