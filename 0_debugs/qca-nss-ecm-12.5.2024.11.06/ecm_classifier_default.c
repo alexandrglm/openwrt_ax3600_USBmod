@@ -17,6 +17,8 @@
  **************************************************************************
  */
 
+/* DEBUG printk's */
+#include <linux/printk.h>
 #include <linux/version.h>
 #include <linux/types.h>
 #include <linux/ip.h>
@@ -303,6 +305,11 @@ static void ecm_classifier_default_process(struct ecm_classifier_instance *aci, 
 					   struct ecm_tracker_ip_header *ip_hdr, struct sk_buff *skb,
 					   struct ecm_classifier_process_response *process_response)
 {
+
+	/* ===== PRINTK AL PRINCIPIO ===== */
+	printk(KERN_INFO "DEFAULT: process() called for serial %u\n",
+		   ((struct ecm_classifier_default_internal_instance *)aci)->ci_serial);
+	/* ===== FIN PRINTK ===== */
 	struct ecm_tracker_instance *ti;
 	ecm_tracker_sender_state_t from_state;
 	ecm_tracker_sender_state_t to_state;
@@ -415,7 +422,7 @@ static void ecm_classifier_default_process(struct ecm_classifier_instance *aci, 
 	}
 	spin_unlock_bh(&ct->lock);
 
-check_delay:
+	check_delay:
 	/*
 	 * Should we delay the acceleration?
 	 */
@@ -428,37 +435,48 @@ check_delay:
 		DEBUG_INFO("%px: connection is ready for accel\n", cdii);
 	}
 
+	/* DEBUG CONSULTAR MARK CLASSIFIER  */
+	/*
+	 * Check if MARK classifier denies acceleration
+	 */
+	{
+		struct ecm_db_connection_instance *ci;
+		struct ecm_classifier_instance *mark_classi;
+		struct ecm_classifier_process_response mark_pr;
+		bool mark_denies = false;
+
+		ci = ecm_db_connection_serial_find_and_ref(cdii->ci_serial);
+		if (ci) {
+			mark_classi = ecm_db_connection_assigned_classifier_find_and_ref(ci, ECM_CLASSIFIER_TYPE_MARK);
+			if (mark_classi) {
+				mark_classi->last_process_response_get(mark_classi, &mark_pr);
+				mark_classi->deref(mark_classi);
+				if (mark_pr.accel_mode == ECM_CLASSIFIER_ACCELERATION_MODE_NO ||
+					mark_pr.relevance == ECM_CLASSIFIER_RELEVANCE_NO) {
+					mark_denies = true;
+				/* === CAMBIAR DEBUG_INFO POR printk === */
+				printk(KERN_INFO "MARK: DEFAULT forcing slow path (mark denied)\n");
+					}
+			}
+			ecm_db_connection_deref(ci);
+		}
+
+		if (mark_denies) {
+			spin_lock_bh(&ecm_classifier_default_lock);
+			cdii->process_response.accel_mode = ECM_CLASSIFIER_ACCELERATION_MODE_NO;
+			cdii->process_response.process_actions |= ECM_CLASSIFIER_PROCESS_ACTION_ACCEL_MODE;
+			*process_response = cdii->process_response;
+			spin_unlock_bh(&ecm_classifier_default_lock);
+			return;
+		}
+	}
+	/* FIN DEBUG */
+
 	/*
 	 * Return the process response
 	 */
 	spin_lock_bh(&ecm_classifier_default_lock);
-
-	/* DEBUG: Consultar MARK classifier SIEMPRE */
-	struct ecm_classifier_instance *mark_classi;
-	struct ecm_classifier_process_response mark_pr;
-	bool mark_denies = false;
-
-
-
-	/* DEBUG */
-	mark_classi = ecm_db_connection_assigned_classifier_find_and_ref(ci, ECM_CLASSIFIER_TYPE_MARK);
-	if (mark_classi) {
-		mark_classi->last_process_response_get(mark_classi, &mark_pr);
-		mark_classi->deref(mark_classi);
-
-		/* Si MARK dice NO o NOT_RELEVANT, forzar NO accel */
-		if (mark_pr.accel_mode == ECM_CLASSIFIER_ACCELERATION_MODE_NO ||
-			mark_pr.relevance == ECM_CLASSIFIER_RELEVANCE_NO) {
-			mark_denies = true;
-		DEBUG_INFO("DEFAULT: MARK classifier denies accel, forcing slow path\n");
-			}
-	}
-
-	if (mark_denies) {
-		cdii->process_response.accel_mode = ECM_CLASSIFIER_ACCELERATION_MODE_NO;
-	} else {
-		cdii->process_response.accel_mode = ecm_classifier_default_accel_mode;
-	}
+	cdii->process_response.accel_mode = ecm_classifier_default_accel_mode;
 	cdii->process_response.process_actions |= ECM_CLASSIFIER_PROCESS_ACTION_ACCEL_MODE;
 	*process_response = cdii->process_response;
 	spin_unlock_bh(&ecm_classifier_default_lock);
