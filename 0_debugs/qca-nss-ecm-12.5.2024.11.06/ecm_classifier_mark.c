@@ -21,6 +21,7 @@
  * acceleration engine.
  */
 
+/* DEBUG printk's */
 #include <linux/version.h>
 #include <linux/types.h>
 #include <linux/ip.h>
@@ -91,7 +92,10 @@ struct ecm_classifier_mark_instance {
 /*
  * Operational control. By default it is disabled.
  */
-static int ecm_classifier_mark_enabled;
+/*
+ * Ya no va a estar disabled por defecto
+ */
+static int ecm_classifier_mark_enabled = 1;
 
 /* DEBUG
  *
@@ -147,7 +151,7 @@ static ecm_classifier_mark_result_t ecm_classifier_mark_default_get(struct sk_bu
 
 	/* Si la marca es 0x100, denegar aceleración */
 	if (*mark == 0x100) {
-		DEBUG_INFO("MARK: Denying accel for mark 0x%x\n", *mark);
+		DEBUG_INFO("MORK: Denying accel for mark 0x%x\n", *mark);
 		return ECM_CLASSIFIER_MARK_RESULT_NOT_RELEVANT;
 	}
 
@@ -878,19 +882,13 @@ EXPORT_SYMBOL(ecm_classifier_mark_init);
 /*
  * ecm_classifier_mark_exit()
  */
-/*
- *
- * DEBUG
- *
- * 1.	Persitencia enm init.d restar (pero NO al rmmod)
- */
+
 void ecm_classifier_mark_exit(void)
 {
 	DEBUG_INFO("Mark classifier Module exit\n");
 
 	spin_lock_bh(&ecm_classifier_mark_lock);
 	ecm_classifier_mark_terminate_pending = true;
-	int last_state = ecm_classifier_mark_enabled;/* 1. PERSIETENCIA*/
 	spin_unlock_bh(&ecm_classifier_mark_lock);
 
 	/*
