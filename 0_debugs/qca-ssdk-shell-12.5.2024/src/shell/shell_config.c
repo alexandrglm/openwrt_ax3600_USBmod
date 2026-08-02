@@ -1583,7 +1583,7 @@ struct cmd_des_t gcmd_des[] =
 
     /*Ctrlpkt Control*/
     /* DEBUG 9: ctrlpkt appprofile set
-     * Original: {"appprofile", "set", "set app profile", "<app_entry>", SW_API_MGMTCTRL_CTRLPKT_PROFILE_SET, NULL},
+     * Original: {"appprofile", "set", "set app profile", "<app_entry>", SW_API_MGMTCTRL_CTRLPKT_PROFILE_ADD, NULL},
      * Motivo: fal_ctrlpkt_profile_t tiene 19 campos
      * Línea real: {"appprofile", "set", "set app profile", "<port_map> <ethtype_bmp> <rfdb_bmp> <eapol_en> <pppoe_en> <igmp_en> <arp_req_en> <arp_res_en> <dhcp4_en> <dhcp6_en> <mld_en> <ip6ns_en> <ip6na_en> <8023ah_oam_en> <action> <sg_bypass> <l2filter_bypass> <in_stp_bypass> <in_vlan_filter_bypass>", SW_API_MGMTCTRL_CTRLPKT_PROFILE_SET, NULL},
      * Parámetros: <port_map> (bitmap), <ethtype_bmp/rfdb_bmp> (bitmaps), <*_en> (yes|no), <action> (forward|drop|cpycpu|rdtcpu), <*_bypass> (yes|no)
@@ -1602,7 +1602,7 @@ struct cmd_des_t gcmd_des[] =
             {"appprofile", "del", "del app profile entry", "<app_entry>", SW_API_MGMTCTRL_CTRLPKT_PROFILE_DEL, NULL},
             {"appprofile", "getfirst", "get first app profile entry", "", SW_API_MGMTCTRL_CTRLPKT_PROFILE_GETFIRST, NULL},
             {"appprofile", "getnext", "get next app profile entry", "<app_entry>", SW_API_MGMTCTRL_CTRLPKT_PROFILE_GETNEXT, NULL},
-            {"appprofile", "set", "set app profile", "<port_map> <ethtype_bmp> <rfdb_bmp> <eapol_en> <pppoe_en> <igmp_en> <arp_req_en> <arp_res_en> <dhcp4_en> <dhcp6_en> <mld_en> <ip6ns_en> <ip6na_en> <8023ah_oam_en> <action> <sg_bypass> <l2filter_bypass> <in_stp_bypass> <in_vlan_filter_bypass>", SW_API_MGMTCTRL_CTRLPKT_PROFILE_SET, NULL},
+            {"appprofile", "set", "set app profile", "<port_map> <ethtype_bmp> <rfdb_bmp> <eapol_en> <pppoe_en> <igmp_en> <arp_req_en> <arp_res_en> <dhcp4_en> <dhcp6_en> <mld_en> <ip6ns_en> <ip6na_en> <8023ah_oam_en> <action> <sg_bypass> <l2filter_bypass> <in_stp_bypass> <in_vlan_filter_bypass>", SW_API_MGMTCTRL_CTRLPKT_PROFILE_ADD, NULL},
             {"appprofile", "show", "show whole app profile entries", "", SW_CMD_CTRLPKT_SHOW, cmd_show_ctrlpkt},
             {"appprofile", "show", "show whole app profile entries", "", SW_CMD_CTRLPKT_SHOW, cmd_show_ctrlpkt},
             {"vpgroup", "set", "set the vpgroup", "<port_id> <vpgroup_id>", SW_API_MGMTCTRL_VPGROUP_SET, NULL},
