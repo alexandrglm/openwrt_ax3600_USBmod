@@ -17,7 +17,7 @@
  **************************************************************************
  */
 
-/* DEBUG printk's */
+
 #include <linux/printk.h>
 #include <linux/version.h>
 #include <linux/types.h>
@@ -94,7 +94,7 @@ struct ecm_classifier_instance *ecm_classifier_assign_classifier(struct ecm_db_c
 		struct ecm_classifier_pcc_instance *pcci;
 
 		/* DEBUG */
-		printk(KERN_INFO "MARK: Attempting to assign classifier\n");
+		// printk(KERN_INFO "MARK: Attempting to assign classifier\n");
 
 		pcci = ecm_classifier_pcc_instance_alloc(ci);
 		if (!pcci) {
@@ -180,6 +180,9 @@ struct ecm_classifier_instance *ecm_classifier_assign_classifier(struct ecm_db_c
 	case ECM_CLASSIFIER_TYPE_MARK: {
 		struct ecm_classifier_mark_instance *ecmi;
 
+		/* DEBUG */
+		// printk(KERN_INFO "MARK: assign_classifier() called for MARK type\n");
+
 		ecmi = ecm_classifier_mark_instance_alloc(ci);
 		if (!ecmi) {
 			DEBUG_TRACE("%px: Failed to create mark classifier\n", ci);
@@ -235,6 +238,8 @@ struct ecm_classifier_instance *ecm_classifier_assign_classifier(struct ecm_db_c
  */
 bool ecm_classifier_reclassify(struct ecm_db_connection_instance *ci, int assignment_count, struct ecm_classifier_instance *assignments[])
 {
+	/* DEBUG printk */
+	// printk(KERN_INFO "CLASSIFIER: reclassify() called for serial %u\n", ecm_db_connection_serial_get(ci));
 	ecm_classifier_type_t classifier_type;
 	int i;
 	bool full_reclassification = true;
@@ -243,6 +248,9 @@ bool ecm_classifier_reclassify(struct ecm_db_connection_instance *ci, int assign
 	 * assignment_count will always be <= the number of classifier types available
 	 */
 	for (i = 0, classifier_type = ECM_CLASSIFIER_TYPE_DEFAULT; i < assignment_count; ++i, ++classifier_type) {
+
+
+
 		ecm_classifier_type_t aci_type;
 		struct ecm_classifier_instance *aci;
 
@@ -283,6 +291,8 @@ bool ecm_classifier_reclassify(struct ecm_db_connection_instance *ci, int assign
 	 */
 	for (; classifier_type < ECM_CLASSIFIER_TYPES; ++classifier_type) {
 		struct ecm_classifier_instance *naci;
+		/* DEBUG printk */
+		// printk(KERN_INFO "CLASSIFIER: Trying to assign type %d\n", classifier_type);
 		DEBUG_TRACE("%px: Instantiate missing type: %d\n", ci, classifier_type);
 
 		naci = ecm_classifier_assign_classifier(ci, classifier_type);
