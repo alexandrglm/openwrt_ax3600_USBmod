@@ -3,8 +3,8 @@
 ## Proyecto: Filtro de Marca 0x100 en ECM y EDMA para Slow Path
 
 - **Hardware testado**:      Xiaomi AX3600 (ipq807x)
-- **Firmware**:              penWrt 6.12.94 para NSS (fork de @AgustinLorenzo / @qosmio )
-- **NSS Firmware:            NSS.HK.11.4.0.5-6-R
+- **Firmware**:              OpenWrt 6.12.94 para NSS (fork de @AgustinLorenzo / @qosmio )
+- **NSS Firmware**           NSS.HK.11.4.0.5-6-R
 - **Fecha:**                 2026, August. 04.
 
 
