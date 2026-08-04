@@ -161,7 +161,6 @@ flowchart TD
 | `ecm_classifier_mark.c` | Añadido `decelerated` para evitar ejecución repetida |
 | `ecm_classifier_mark.h` | Añadido campo `bool decelerated` |
 | `ecm_classifier_default.c` | Check de `skb->mark == 0x100` al inicio |
-| `ecm_classifier.c` | Printks de depuración |
 
 ### 3.2 qca-nss-dp (Filtro EDMA)
 
@@ -407,7 +406,6 @@ graph TD
 | 5 | `skb->dev = ndev` | Asignar interfaz de origen |
 | 6 | `skb->protocol = eth_type_trans(skb, skb->dev)` | Inferir protocolo (Ethernet) |
 | 7 | `netif_receive_skb(skb)` | Entregar directamente al stack de red de Linux |
-| 8 | `printk()` | Log de depuración (opcional) |
 
 
 ### 5.3 Por qué este filtro es eficiente
