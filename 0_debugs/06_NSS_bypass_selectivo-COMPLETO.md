@@ -425,19 +425,19 @@ graph TD
 
 ```mermaid
 graph TD
-    A[Paquete RX en EDMA] --> B[edma_clean_rx()]
-    B --> C{¿skb->mark == 0x100?}
+    A[Paquete RX en EDMA] --> B[edma_clean_rx]
+    B --> C{skb->mark == 0x100?}
     
     C -->|NO| D[Entregar a NSS]
     D --> E[Fast Path]
     
-    C -->|SÍ| F[Extraer src_port_num del rxph]
-    F --> G{¿src_port_num válido?}
+    C -->|SI| F[Extraer src_port_num del rxph]
+    F --> G{src_port_num valido?}
     G -->|NO| H[Drop]
-    G -->|SÍ| I[Obtener ndev]
-    I --> J{¿ndev válido y running?}
+    G -->|SI| I[Obtener ndev]
+    I --> J{ndev valido y running?}
     J -->|NO| K[Drop]
-    J -->|SÍ| L[Configurar skb]
+    J -->|SI| L[Configurar skb]
     
     L --> M[skb_pull - quitar preheader]
     M --> N[skb->dev = ndev]
@@ -445,10 +445,23 @@ graph TD
     O --> P[netif_receive_skb]
     P --> Q[CPU Slow Path optimizado]
     
-    style A fill:#f9f,stroke:#333,stroke-width:2px
-    style E fill:#99ff99,stroke:#333,stroke-width:2px
-    style Q fill:#ff9999,stroke:#333,stroke-width:2px
-    style L fill:#fff9c4,stroke:#333,stroke-width:2px
+    style A fill:#f9f,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
+    style B fill:#e1f5fe,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
+    style C fill:#fff9c4,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
+    style D fill:#e1f5fe,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
+    style E fill:#99ff99,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
+    style F fill:#e1f5fe,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
+    style G fill:#fff9c4,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
+    style H fill:#ff9999,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
+    style I fill:#e1f5fe,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
+    style J fill:#fff9c4,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
+    style K fill:#ff9999,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
+    style L fill:#fff9c4,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
+    style M fill:#e1f5fe,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
+    style N fill:#e1f5fe,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
+    style O fill:#e1f5fe,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
+    style P fill:#e1f5fe,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
+    style Q fill:#ff9999,stroke:#333,stroke-width:2px,color:#000,font-weight:bold
 ```
 
 ### 5.5 Archivos modificados y su propósito
