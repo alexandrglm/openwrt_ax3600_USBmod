@@ -1,5 +1,4 @@
 /*
- **************************************************************************
  * Copyright (c) 2014-2016, 2020-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
@@ -14,10 +13,8 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
  * OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- **************************************************************************
  */
 
-/* DEBUG printk's */
 #include <linux/printk.h>
 #include <linux/version.h>
 #include <linux/types.h>
@@ -35,7 +32,7 @@
 #include <net/ip.h>
 #include <net/tcp.h>
 #include <asm/unaligned.h>
-#include <asm/uaccess.h>	/* for put_user */
+#include <asm/uaccess.h>
 #include <net/ipv6.h>
 #include <linux/inet.h>
 #include <linux/in.h>
@@ -50,7 +47,6 @@
 #include <net/netfilter/nf_conntrack_core.h>
 #include <net/netfilter/ipv4/nf_conntrack_ipv4.h>
 #include <net/netfilter/ipv4/nf_defrag_ipv4.h>
-
 /*
  * Debug output levels
  * 0 = OFF
@@ -74,69 +70,47 @@
 #include "ecm_classifier_default.h"
 #include "ecm_front_end_common.h"
 
-/*
- * Magic numbers
- */
 #define ECM_CLASSIFIER_DEFAULT_INTERNAL_INSTANCE_MAGIC 0x8761
 #define ECM_CLASSIFIER_DEFAULT_STATE_FILE_INSTANCE_MAGIC 0x3321
 
-/*
- * struct ecm_classifier_default_internal_instance
- * 	State to allow tracking of dynamic priority for a connection
- */
 struct ecm_classifier_default_internal_instance {
-	struct ecm_classifier_default_instance base;		/* Base type */
-
-	uint32_t ci_serial;					/* RO: Serial of the connection */
-	int protocol;						/* RO: Protocol of the connection */
-
+	struct ecm_classifier_default_instance base;
+	uint32_t ci_serial;
+	int protocol;
 	struct ecm_classifier_process_response process_response;
-								/* Last process response computed */
-
-	ecm_db_timer_group_t timer_group;			/* The timer group the connection should be in based on state */
-
-	ecm_tracker_sender_type_t ingress_sender;		/* RO: Which sender is sending ingress data */
-	ecm_tracker_sender_type_t egress_sender;		/* RO: Which sender is sending egress data */
-
-	struct ecm_tracker_instance *ti;			/* RO: Tracker used for state and timer group checking. Pointer will not change so safe to access outside of lock. */
-	bool packet_seen[ECM_CONN_DIR_MAX];                     /* Per-direction packet seen flag */
-	int refs;						/* Integer to trap we never go negative */
-#if (DEBUG_LEVEL > 0)
+	ecm_db_timer_group_t timer_group;
+	ecm_tracker_sender_type_t ingress_sender;
+	ecm_tracker_sender_type_t egress_sender;
+	struct ecm_tracker_instance *ti;
+	bool packet_seen[ECM_CONN_DIR_MAX];
+	int refs;
+	bool classified;
+	bool decelerated;
+	#if (DEBUG_LEVEL > 0)
 	uint16_t magic;
-#endif
+	#endif
 };
 
-static  DEFINE_SPINLOCK(ecm_classifier_default_lock);			/* Concurrency control SMP access */
-static int ecm_classifier_default_count = 0;			/* Tracks number of instances allocated */
+static DEFINE_SPINLOCK(ecm_classifier_default_lock);
+static int ecm_classifier_default_count = 0;
 
-/*
- * Operational control
- */
 static ecm_classifier_acceleration_mode_t ecm_classifier_default_accel_mode = ECM_CLASSIFIER_ACCELERATION_MODE_ACCEL;
-								/* Cause connections whose hosts are both on-link to be accelerated */
-static int ecm_classifier_default_enabled = 1;		/* When disabled the qos algorithm will not be applied to skb's */
+static int ecm_classifier_default_enabled = 1;
+static bool ecm_classifier_default_terminate_pending = false;
 
-/*
- * Management thread control
- */
-static bool ecm_classifier_default_terminate_pending = false;	/* True when the user wants us to terminate */
-
-/*
- * Character device stuff - used to communicate status back to user space
- */
 #define ECM_CLASSIFIER_DEFAULT_STATE_FILE_BUFFER_SIZE 1024
 struct ecm_classifier_default_state_file_instance {
 	struct ecm_classifier_default_internal_instance *cdii;
 	bool doc_start_written;
 	bool doc_end_written;
-	char msg_buffer[ECM_CLASSIFIER_DEFAULT_STATE_FILE_BUFFER_SIZE];	/* Used to hold the current state message being output */
-	char *msgp;							/* Points into the msg buffer as we output it piece by piece */
-	int msg_len;							/* Length of the buffer still to be written out */
-#if (DEBUG_LEVEL > 0)
+	char msg_buffer[ECM_CLASSIFIER_DEFAULT_STATE_FILE_BUFFER_SIZE];
+	char *msgp;
+	int msg_len;
+	#if (DEBUG_LEVEL > 0)
 	uint16_t magic;
-#endif
+	#endif
 };
-static struct dentry *ecm_classifier_default_dentry;		/* Debugfs dentry object */
+static struct dentry *ecm_classifier_default_dentry;
 
 /*
  * _ecm_classifier_default_ref()
@@ -184,22 +158,13 @@ static int ecm_classifier_default_deref(struct ecm_classifier_instance *ci)
 		return refs;
 	}
 
-	/*
-	 * Object to be destroyed
-	 */
 	ecm_classifier_default_count--;
 	DEBUG_ASSERT(ecm_classifier_default_count >= 0, "%px: ecm_classifier_default_count wrap\n", cdii);
 
 	spin_unlock_bh(&ecm_classifier_default_lock);
 
-	/*
-	 * Release our tracker
-	 */
 	cdii->ti->deref(cdii->ti);
 
-	/*
-	 * Final
-	 */
 	DEBUG_INFO("%px: Final default classifier instance\n", cdii);
 	kfree(cdii);
 
@@ -207,286 +172,129 @@ static int ecm_classifier_default_deref(struct ecm_classifier_instance *ci)
 }
 
 /*
- * ecm_classifier_default_ready_for_accel()
- *	Checks if the connection is ready for the acceleration.
- *
- * This function is called, if the acceleration delay feature is enabled.
- */
-static bool ecm_classifier_default_ready_for_accel(
-			struct ecm_classifier_default_internal_instance *cdii,
-			ecm_tracker_sender_type_t sender)
-{
-	uint64_t slow_pkts;
-	struct ecm_db_connection_instance *ci;
-	struct ecm_front_end_connection_instance *feci;
-
-	/*
-	 * We delay the acceleration for TCP and UDP protocols only.
-	 * Non-ported protocols mostly the outer connections of the flows.
-	 * Acceleration delay is required to inspect the packets and
-	 * the outer connections are generally do not need inspection.
-	 */
-	if (cdii->protocol != IPPROTO_TCP && cdii->protocol != IPPROTO_UDP) {
-		DEBUG_TRACE("%px: Accel delay is not enabled for protocol: %d\n", cdii, cdii->protocol);
-		return true;
-	}
-
-	/*
-	 * Delay forever until seeing the reply packet.
-	 */
-	if (ecm_classifier_accel_delay_pkts == 1) {
-		DEBUG_INFO("%px: Checking both direction traffic\n", cdii);
-
-		/*
-		 * Set the flow and return direction packet seen flags.
-		 */
-		if (sender == ECM_TRACKER_SENDER_TYPE_SRC) {
-			cdii->packet_seen[ECM_CONN_DIR_FLOW] = true;
-		} else {
-			cdii->packet_seen[ECM_CONN_DIR_RETURN] = true;
-		}
-
-		/*
-		 * Check if both direction traffic is seen.
-		 */
-		return cdii->packet_seen[ECM_CONN_DIR_FLOW] && cdii->packet_seen[ECM_CONN_DIR_RETURN];
-	}
-
-	/*
-	 * Delay the acceleration until we see <N> number of packets.
-	 * ecm_classifier_accel_delay_pkts = <N>
-	 */
-	ci = ecm_db_connection_serial_find_and_ref(cdii->ci_serial);
-	if (!ci) {
-		DEBUG_TRACE("%px: No ci found for %u\n", cdii, cdii->ci_serial);
-		return false;
-	}
-
-	/*
-	 * Get the packet count we have seen in the slow path so far.
-	 */
-	feci = ecm_db_connection_front_end_get_and_ref(ci);
-	slow_pkts = ecm_front_end_get_slow_packet_count(feci);
-	ecm_front_end_connection_deref(feci);
-	ecm_db_connection_deref(ci);
-
-	/*
-	 * Check if we have seen slow path packets as the predefined count.
-	 */
-	if (slow_pkts < ecm_classifier_accel_delay_pkts) {
-		DEBUG_TRACE("%px: delay the acceleration: slow packets: %llu default delay packet count: %d\n",
-			    cdii, slow_pkts, ecm_classifier_accel_delay_pkts);
-
-		/*
-		 * We haven't reached the slow path packet limit.
-		 * We can wait more to accelerate the connection.
-		 */
-		return false;
-	}
-
-	/*
-	 * We waited enough time for the acceleration, we can allow it now.
-	 */
-	DEBUG_INFO("%px: Let the flow accel, waited enough packet\n", cdii);
-	return true;
-}
-
-/*
  * ecm_classifier_default_process()
  *	Process the flow for acceleration decision.
  */
-
-/*
- * DEBUG
- * 	AModificar decisiones de default para que consulte CT MARK SIEMPRE y respete sus decisiones sobre paquetes marcados
- *
- */
 static void ecm_classifier_default_process(struct ecm_classifier_instance *aci, ecm_tracker_sender_type_t sender,
-					   struct ecm_tracker_ip_header *ip_hdr, struct sk_buff *skb,
-					   struct ecm_classifier_process_response *process_response)
+										   struct ecm_tracker_ip_header *ip_hdr, struct sk_buff *skb,
+										   struct ecm_classifier_process_response *process_response)
 {
-
-	/* ===== PRINTK AL PRINCIPIO ===== */
-	printk(KERN_INFO "DEFAULT: process() called for serial %u\n",
-		   ((struct ecm_classifier_default_internal_instance *)aci)->ci_serial);
-	/* ===== FIN PRINTK ===== */
-	struct ecm_tracker_instance *ti;
-	ecm_tracker_sender_state_t from_state;
-	ecm_tracker_sender_state_t to_state;
-	ecm_tracker_connection_state_t prevailing_state;
-	ecm_db_timer_group_t tg;
 	struct ecm_classifier_default_internal_instance *cdii = (struct ecm_classifier_default_internal_instance *)aci;
-	struct nf_conn *ct;
-	enum ip_conntrack_info ctinfo;
+	struct ecm_db_connection_instance *ci = NULL;
+	struct ecm_front_end_connection_instance *feci = NULL;
+	struct ecm_classifier_instance *mark_classi = NULL;
+	struct ecm_classifier_process_response mark_pr;
+	bool mark_denies = false;
+	bool mark_present = false;
+	bool is_syn = false;
 
-	DEBUG_CHECK_MAGIC(cdii, ECM_CLASSIFIER_DEFAULT_INTERNAL_INSTANCE_MAGIC, "%px: invalid state magic\n", cdii);
-
-	/*
-	 * Get qos result and accel mode
-	 * Default classifier is rarely disabled.
-	 */
-	if (unlikely(!ecm_classifier_default_enabled)) {
-		/*
-		 * Still relevant but have no actions that need processing
-		 */
-		spin_lock_bh(&ecm_classifier_default_lock);
-		cdii->process_response.process_actions = 0;
-		*process_response = cdii->process_response;
-		spin_unlock_bh(&ecm_classifier_default_lock);
-		return;
-	}
-
-	/*
-	 * Update connection state
-	 * Compute the timer group this connection should be in.
-	 * For this we need the tracker and the state to be updated.
-	 * NOTE: Tracker does not need to be ref'd it will exist for as long as this default classifier instance does
-	 * which is at least for the duration of this call.
-	 */
-	ti = cdii->ti;
-	ti->state_update(ti, sender, ip_hdr, skb);
-	ti->state_get(ti, &from_state, &to_state, &prevailing_state, &tg);
-	spin_lock_bh(&ecm_classifier_default_lock);
-	if (unlikely(cdii->timer_group != tg)) {
-		/*
-		 * Timer group has changed
-		 */
-		cdii->process_response.process_actions |= ECM_CLASSIFIER_PROCESS_ACTION_TIMER_GROUP;
-		cdii->process_response.timer_group = tg;
-
-		/*
-		 * Record for future change comparisons
-		 */
-		DEBUG_INFO("%px: timer group changed from %d to %d\n", cdii, cdii->timer_group, tg);
-		cdii->timer_group = tg;
-	}
-
-	/*
-	 * Don't care?
-	 */
-	if (ecm_classifier_default_accel_mode == ECM_CLASSIFIER_ACCELERATION_MODE_DONT_CARE) {
-		cdii->process_response.process_actions &= ~ECM_CLASSIFIER_PROCESS_ACTION_ACCEL_MODE;
-		*process_response = cdii->process_response;
-		spin_unlock_bh(&ecm_classifier_default_lock);
-		return;
-	}
-	spin_unlock_bh(&ecm_classifier_default_lock);
-
-	/*
-	 * Handle non-TCP case
-	 */
-	if (cdii->protocol != IPPROTO_TCP) {
-		if (unlikely(prevailing_state != ECM_TRACKER_CONNECTION_STATE_ESTABLISHED)) {
-			DEBUG_INFO("%px: Protocol: %d is non-TCP, prevailing_state: %d\n", cdii, cdii->protocol, prevailing_state);
-			spin_lock_bh(&ecm_classifier_default_lock);
-			goto accel_no;
-		}
-		DEBUG_INFO("%px: Protocol: %d is non-TCP, prevailing_state ESTABLISHED\n", cdii, cdii->protocol);
-		goto check_delay;
-	}
-
-	/*
-	 * Check the TCP connection state, when the ct is NULL.
-	 * ct valid case was already checked in the ecm_nss{sfe}_ported_ipv4{6}_process functions.
-	 * If we are not established then we deny acceleration.
-	 */
-	ct = nf_ct_get(skb, &ctinfo);
-	if (!ct) {
-		DEBUG_TRACE("%px: No Conntrack found for packet, using ECM tracker state\n", cdii);
-
-		if (unlikely(prevailing_state == ECM_TRACKER_CONNECTION_STATE_ESTABLISHED)) {
-			DEBUG_INFO("%px: TCP prevailing_state ESTABLISHED\n", cdii);
-			goto check_delay;
-		}
-
-		DEBUG_INFO("%px: TCP prevailing_state: %d\n", cdii, prevailing_state);
-
-		spin_lock_bh(&ecm_classifier_default_lock);
-		if ((prevailing_state == ECM_TRACKER_CONNECTION_STATE_FAULT) || (prevailing_state == ECM_TRACKER_CONNECTION_STATE_CLOSED)) {
-			cdii->process_response.process_actions |= ECM_CLASSIFIER_PROCESS_ACTION_TIMER_GROUP_NO_TOUCH;
-		}
-		goto accel_no;
-	}
-
-	/*
-	* If the connection is shutting down do not manage it.
-	* state can not be SYN_SENT, SYN_RECV because connection is assured
-	* Not managed states: FIN_WAIT, CLOSE_WAIT, LAST_ACK, TIME_WAIT, CLOSE.
-	*/
-	spin_lock_bh(&ct->lock);
-	if (ct->proto.tcp.state != TCP_CONNTRACK_ESTABLISHED) {
-		spin_unlock_bh(&ct->lock);
-		DEBUG_TRACE("%px: Connection in termination state %#X\n", ct, ct->proto.tcp.state);
-		spin_lock_bh(&ecm_classifier_default_lock);
-		goto accel_no;
-	}
-	spin_unlock_bh(&ct->lock);
-
-	check_delay:
-	/*
-	 * Should we delay the acceleration?
-	 */
-	if (ecm_classifier_accel_delay_pkts) {
-		if (!ecm_classifier_default_ready_for_accel(cdii, sender)) {
-			DEBUG_INFO("%px: connection is not ready for accel\n", cdii);
-			spin_lock_bh(&ecm_classifier_default_lock);
-			goto accel_no;
-		}
-		DEBUG_INFO("%px: connection is ready for accel\n", cdii);
-	}
-
-	/* DEBUG CONSULTAR MARK CLASSIFIER  */
-	/*
-	 * Check if MARK classifier denies acceleration
-	 */
-	{
-		struct ecm_db_connection_instance *ci;
-		struct ecm_classifier_instance *mark_classi;
-		struct ecm_classifier_process_response mark_pr;
-		bool mark_denies = false;
-
-		ci = ecm_db_connection_serial_find_and_ref(cdii->ci_serial);
-		if (ci) {
-			mark_classi = ecm_db_connection_assigned_classifier_find_and_ref(ci, ECM_CLASSIFIER_TYPE_MARK);
-			if (mark_classi) {
-				mark_classi->last_process_response_get(mark_classi, &mark_pr);
-				mark_classi->deref(mark_classi);
-				if (mark_pr.accel_mode == ECM_CLASSIFIER_ACCELERATION_MODE_NO ||
-					mark_pr.relevance == ECM_CLASSIFIER_RELEVANCE_NO) {
-					mark_denies = true;
-				/* === CAMBIAR DEBUG_INFO POR printk === */
-				printk(KERN_INFO "MARK: DEFAULT forcing slow path (mark denied)\n");
-					}
+	/* DEBUG: Verificar si es un SYN (TCP) */
+	if (skb && skb->protocol == ETH_P_IP) {
+		struct iphdr *ip = (struct iphdr *)skb->data;
+		if (ip->protocol == IPPROTO_TCP) {
+			struct tcphdr *tcp = (struct tcphdr *)(skb->data + (ip->ihl * 4));
+			if (tcp->syn && !tcp->ack) {
+				is_syn = true;
+				// printk(KERN_INFO "DEFAULT: SYN packet detected for serial %u\n", cdii->ci_serial);
 			}
-			ecm_db_connection_deref(ci);
 		}
+	}
 
-		if (mark_denies) {
-			spin_lock_bh(&ecm_classifier_default_lock);
-			cdii->process_response.accel_mode = ECM_CLASSIFIER_ACCELERATION_MODE_NO;
-			cdii->process_response.process_actions |= ECM_CLASSIFIER_PROCESS_ACTION_ACCEL_MODE;
+	/* DEBUG: SI NO ES SYN, NO PROCESAR (solo el SYN decide el offload) */
+	if (!is_syn) {
+		spin_lock_bh(&ecm_classifier_default_lock);
+		if (cdii->classified) {
 			*process_response = cdii->process_response;
 			spin_unlock_bh(&ecm_classifier_default_lock);
 			return;
 		}
+		spin_unlock_bh(&ecm_classifier_default_lock);
 	}
-	/* FIN DEBUG */
 
-	/*
-	 * Return the process response
-	 */
+	// printk(KERN_INFO "DEFAULT: process() called for serial %u\n", cdii->ci_serial);
+
+	/* Verifica si ya está clasificada  */
 	spin_lock_bh(&ecm_classifier_default_lock);
-	cdii->process_response.accel_mode = ecm_classifier_default_accel_mode;
-	cdii->process_response.process_actions |= ECM_CLASSIFIER_PROCESS_ACTION_ACCEL_MODE;
-	*process_response = cdii->process_response;
+	if (cdii->classified) {
+		*process_response = cdii->process_response;
+		spin_unlock_bh(&ecm_classifier_default_lock);
+		// printk(KERN_INFO "DEFAULT: Already classified, returning previous decision\n");
+		return;
+	}
 	spin_unlock_bh(&ecm_classifier_default_lock);
-	return;
 
-accel_no:
-	cdii->process_response.accel_mode = ECM_CLASSIFIER_ACCELERATION_MODE_NO;
-	cdii->process_response.process_actions |= ECM_CLASSIFIER_PROCESS_ACTION_ACCEL_MODE;
+	/* CONSULTAR MARK CLASSIFIER (solo para SYN) */
+	ci = ecm_db_connection_serial_find_and_ref(cdii->ci_serial);
+	if (ci) {
+		mark_classi = ecm_db_connection_assigned_classifier_find_and_ref(ci, ECM_CLASSIFIER_TYPE_MARK);
+		if (mark_classi) {
+			mark_present = true;
+			// printk(KERN_INFO "DEFAULT: MARK classifier FOUND on connection\n");
+			mark_classi->last_process_response_get(mark_classi, &mark_pr);
+			mark_classi->deref(mark_classi);
+			// printk(KERN_INFO "DEFAULT: MARK accel_mode=%d, relevance=%d\n", mark_pr.accel_mode, mark_pr.relevance);
+
+			/* Si MARK dice NO_ACCEL (1), denegar */
+			if (mark_pr.relevance == ECM_CLASSIFIER_RELEVANCE_YES &&
+				mark_pr.accel_mode == ECM_CLASSIFIER_ACCELERATION_MODE_NO) {
+				mark_denies = true;
+				// printk(KERN_INFO "MARK: DEFAULT forcing slow path (mark denied)\n");
+				} else if (mark_pr.relevance == ECM_CLASSIFIER_RELEVANCE_YES &&
+					mark_pr.accel_mode == ECM_CLASSIFIER_ACCELERATION_MODE_ACCEL) {
+					// printk(KERN_INFO "MARK: DEFAULT sees MARK says ACCEL\n");
+					} else {
+						printk(KERN_INFO "MARK: DEFAULT sees MARK says DONT_CARE or MAYBE\n");
+					}
+		} else {
+			// printk(KERN_INFO "DEFAULT: MARK classifier NOT FOUND on connection\n");
+		}
+		ecm_db_connection_deref(ci);
+	} else {
+		printk(KERN_INFO "DEFAULT: Connection NOT found for serial %u\n", cdii->ci_serial);
+	}
+
+	/* DECISION */
+	spin_lock_bh(&ecm_classifier_default_lock);
+
+	if (mark_present) {
+		if (mark_denies) {
+			/* MARK dice NO_ACCEL */
+			cdii->process_response.accel_mode = ECM_CLASSIFIER_ACCELERATION_MODE_NO;
+			cdii->process_response.process_actions |= ECM_CLASSIFIER_PROCESS_ACTION_ACCEL_MODE;
+
+			if (!cdii->decelerated) {
+				feci = ecm_db_connection_front_end_get_and_ref(ci);
+				if (feci) {
+					if (feci->decelerate) {
+						feci->decelerate(feci);
+						// printk(KERN_INFO "MARK: DECELERATED connection (destroyed NSS rule)\n");
+					}
+					ecm_front_end_connection_deref(feci);
+				}
+				cdii->decelerated = true;
+			}
+			// printk(KERN_INFO "DEFAULT: MARK says NO_ACCEL, decision = NO_ACCEL\n");
+		} else {
+			/* MARK dice ACCEL o DONT_CARE → DEFAULT acelera */
+			cdii->process_response.accel_mode = ECM_CLASSIFIER_ACCELERATION_MODE_ACCEL;
+			cdii->process_response.process_actions |= ECM_CLASSIFIER_PROCESS_ACTION_ACCEL_MODE;
+			// printk(KERN_INFO "DEFAULT: MARK says ACCEL or DONT_CARE, decision = ACCEL\n");
+		}
+	} else {
+		/* MARK NO está presente, DEFAULT decide por sí mismo */
+		cdii->process_response.accel_mode = ECM_CLASSIFIER_ACCELERATION_MODE_ACCEL;
+		cdii->process_response.process_actions |= ECM_CLASSIFIER_PROCESS_ACTION_ACCEL_MODE;
+		// printk(KERN_INFO "DEFAULT: MARK NOT present, decision = ACCEL\n");
+	}
+	/* DEBUG: Marcar como clasificada para no volver a procesar */
+	cdii->classified = true;
+	/* Establecer YES para que NSS sepa que debe acelerar */
+	cdii->process_response.relevance = ECM_CLASSIFIER_RELEVANCE_YES;
 	*process_response = cdii->process_response;
+
 	spin_unlock_bh(&ecm_classifier_default_lock);
+
+	// printk(KERN_INFO "DEFAULT: Decision = %s, classified=%d, mark_present=%d\n", cdii->process_response.accel_mode == ECM_CLASSIFIER_ACCELERATION_MODE_NO ? "NO_ACCEL" : "ACCEL", cdii->classified, mark_present);
 }
 
 /*
@@ -531,7 +339,7 @@ static void ecm_classifier_default_reclassify(struct ecm_classifier_instance *ac
  *	Get result code returned by the last process call
  */
 static void ecm_classifier_default_last_process_response_get(struct ecm_classifier_instance *aci,
-							struct ecm_classifier_process_response *process_response)
+															 struct ecm_classifier_process_response *process_response)
 {
 	struct ecm_classifier_default_internal_instance *cdii;
 	cdii = (struct ecm_classifier_default_internal_instance *)aci;
@@ -648,9 +456,6 @@ static int ecm_classifier_default_state_get(struct ecm_classifier_instance *ci, 
 		return result;
 	}
 
-	/*
-	 * Output our last process response
-	 */
 	if ((result = ecm_classifier_process_response_state_get(sfi, &process_response))) {
 		return result;
 	}
@@ -659,9 +464,6 @@ static int ecm_classifier_default_state_get(struct ecm_classifier_instance *ci, 
 		return result;
 	}
 
-	/*
-	 * Output our tracker state
-	 */
 	if ((result = cdii->ti->state_text_get(cdii->ti, sfi))) {
 		return result;
 	}
@@ -676,25 +478,19 @@ static int ecm_classifier_default_state_get(struct ecm_classifier_instance *ci, 
 
 /*
  * ecm_classifier_default_instance_alloc()
- *	Allocate an instance of the default classifier
+ * Allocate an instance of the default classifier
  */
 struct ecm_classifier_default_instance *ecm_classifier_default_instance_alloc(struct ecm_db_connection_instance *ci, int protocol, ecm_db_direction_t dir, int from_port, int to_port)
 {
 	struct ecm_classifier_default_internal_instance *cdii;
 	struct ecm_classifier_default_instance *cdi;
 
-	/*
-	 * Allocate the instance
-	 */
 	cdii = (struct ecm_classifier_default_internal_instance *)kzalloc(sizeof(struct ecm_classifier_default_internal_instance), GFP_ATOMIC | __GFP_NOWARN);
 	if (!cdii) {
 		DEBUG_WARN("Failed to allocate default instance\n");
 		return NULL;
 	}
 
-	/*
-	 * Allocate a tracker for state etc.
-	 */
 	if (protocol == IPPROTO_TCP) {
 		DEBUG_TRACE("%px: Alloc tracker for TCP connection: %px\n", cdii, ci);
 		cdii->ti = (struct ecm_tracker_instance *)ecm_tracker_tcp_alloc();
@@ -729,14 +525,10 @@ struct ecm_classifier_default_instance *ecm_classifier_default_instance_alloc(st
 	cdii->ci_serial = ecm_db_connection_serial_get(ci);
 	cdii->protocol = protocol;
 
-	/*
-	 * We are always relevant to the connection
-	 */
 	cdii->process_response.relevance = ECM_CLASSIFIER_RELEVANCE_YES;
+	cdii->classified = false;
+	cdii->decelerated = false;
 
-	/*
-	 * Using the connection direction identify egress and ingress host addresses
-	 */
 	if (dir == ECM_DB_DIRECTION_INGRESS_NAT) {
 		cdii->ingress_sender = ECM_TRACKER_SENDER_TYPE_SRC;
 		cdii->egress_sender = ECM_TRACKER_SENDER_TYPE_DEST;
@@ -746,15 +538,9 @@ struct ecm_classifier_default_instance *ecm_classifier_default_instance_alloc(st
 	}
 	DEBUG_TRACE("%px: Ingress sender = %d egress sender = %d\n", cdii, cdii->ingress_sender, cdii->egress_sender);
 
-	/*
-	 * Methods specific to the default classifier
-	 */
 	cdi = (struct ecm_classifier_default_instance *)cdii;
 	cdi->tracker_get_and_ref = ecm_classifier_tracker_get_and_ref;
 
-	/*
-	 * Methods generic to all classifiers.
-	 */
 	cdi->base.process = ecm_classifier_default_process;
 	cdi->base.sync_from_v4 = ecm_classifier_default_sync_from_v4;
 	cdi->base.sync_to_v4 = ecm_classifier_default_sync_to_v4;
@@ -764,17 +550,14 @@ struct ecm_classifier_default_instance *ecm_classifier_default_instance_alloc(st
 	cdi->base.reclassify_allowed = ecm_classifier_default_reclassify_allowed;
 	cdi->base.reclassify = ecm_classifier_default_reclassify;
 	cdi->base.last_process_response_get = ecm_classifier_default_last_process_response_get;
-#ifdef ECM_STATE_OUTPUT_ENABLE
+	#ifdef ECM_STATE_OUTPUT_ENABLE
 	cdi->base.state_get = ecm_classifier_default_state_get;
-#endif
+	#endif
 	cdi->base.ref = ecm_classifier_default_ref;
 	cdi->base.deref = ecm_classifier_default_deref;
 
 	spin_lock_bh(&ecm_classifier_default_lock);
 
-	/*
-	 * Final check if we are pending termination
-	 */
 	if (ecm_classifier_default_terminate_pending) {
 		spin_unlock_bh(&ecm_classifier_default_lock);
 		DEBUG_INFO("%px: Terminating\n", ci);
@@ -783,9 +566,6 @@ struct ecm_classifier_default_instance *ecm_classifier_default_instance_alloc(st
 		return NULL;
 	}
 
-	/*
-	 * Increment stats
-	 */
 	ecm_classifier_default_count++;
 	DEBUG_ASSERT(ecm_classifier_default_count > 0, "%px: ecm_classifier_default_count wrap\n", cdii);
 	spin_unlock_bh(&ecm_classifier_default_lock);
@@ -811,27 +591,27 @@ int ecm_classifier_default_init(struct dentry *dentry)
 	}
 
 	if (!ecm_debugfs_create_u32("enabled", S_IRUGO | S_IWUSR, ecm_classifier_default_dentry,
-					(u32 *)&ecm_classifier_default_enabled)) {
-		DEBUG_ERROR("Failed to create ecm deafult classifier enabled file in debugfs\n");
+		(u32 *)&ecm_classifier_default_enabled)) {
+		DEBUG_ERROR("Failed to create ecm default classifier enabled file in debugfs\n");
+	debugfs_remove_recursive(ecm_classifier_default_dentry);
+	return -1;
+		}
+
+		if (!ecm_debugfs_create_u32("accel_mode", S_IRUGO | S_IWUSR, ecm_classifier_default_dentry,
+			(u32 *)&ecm_classifier_default_accel_mode)) {
+			DEBUG_ERROR("Failed to create ecm default classifier accel_mode file in debugfs\n");
 		debugfs_remove_recursive(ecm_classifier_default_dentry);
 		return -1;
-	}
+			}
 
-	if (!ecm_debugfs_create_u32("accel_mode", S_IRUGO | S_IWUSR, ecm_classifier_default_dentry,
-					(u32 *)&ecm_classifier_default_accel_mode)) {
-		DEBUG_ERROR("Failed to create ecm deafult classifier accel_mode file in debugfs\n");
-		debugfs_remove_recursive(ecm_classifier_default_dentry);
-		return -1;
-	}
+			if (!ecm_debugfs_create_u32("accel_delay_pkts", S_IRUGO | S_IWUSR, ecm_classifier_default_dentry,
+				(u32 *)&ecm_classifier_accel_delay_pkts)) {
+				DEBUG_ERROR("Failed to create accel delay packet counts in debugfs\n");
+			debugfs_remove_recursive(ecm_classifier_default_dentry);
+			return -1;
+				}
 
-	if (!ecm_debugfs_create_u32("accel_delay_pkts", S_IRUGO | S_IWUSR, ecm_classifier_default_dentry,
-					(u32 *)&ecm_classifier_accel_delay_pkts)) {
-		DEBUG_ERROR("Failed to create accel delay packet counts in debugfs\n");
-		debugfs_remove_recursive(ecm_classifier_default_dentry);
-		return -1;
-	}
-
-	return 0;
+				return 0;
 }
 EXPORT_SYMBOL(ecm_classifier_default_init);
 
@@ -845,9 +625,6 @@ void ecm_classifier_default_exit(void)
 	ecm_classifier_default_terminate_pending = true;
 	spin_unlock_bh(&ecm_classifier_default_lock);
 
-	/*
-	 * Remove the debugfs files recursively.
-	 */
 	if (ecm_classifier_default_dentry) {
 		debugfs_remove_recursive(ecm_classifier_default_dentry);
 	}
