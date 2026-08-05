@@ -1,0 +1,301 @@
+diff -Naur a/hal/dp_ops/edma_dp/edma_v1/edma_tx_rx.c b/hal/dp_ops/edma_dp/edma_v1/edma_tx_rx.c
+--- a/hal/dp_ops/edma_dp/edma_v1/edma_tx_rx.c	2026-03-13 10:09:56.000000000 +0100
++++ b/hal/dp_ops/edma_dp/edma_v1/edma_tx_rx.c	2026-08-05 17:17:43.015987108 +0200
+@@ -13,7 +13,7 @@
+  * NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE
+  * USE OR PERFORMANCE OF THIS SOFTWARE.
+  */
+-
++#include <linux/printk.h>
+ #include <linux/debugfs.h>
+ #include <linux/interrupt.h>
+ #include <linux/netdevice.h>
+@@ -266,12 +266,16 @@
+ EXPORT_SYMBOL(nss_phy_tstamp_tx_buf);
+ 
+ /*
++ * DEBUG
++ *
++ * 	Añadir decisiójn filtro de marca para mandar a CPU de forma optimizada
++ * EN CONJUNCION CON ecm.ko ecm_classifiers_mark, si no, no tiene sentido
+  * edma_clean_rx()
+  *	Reap Rx descriptors
+  */
+ static uint32_t edma_clean_rx(struct edma_hw *ehw,
+-				int work_to_do,
+-				struct edma_rxdesc_ring *rxdesc_ring)
++							  int work_to_do,
++							  struct edma_rxdesc_ring *rxdesc_ring)
+ {
+ 	struct platform_device *pdev = ehw->pdev;
+ 	struct net_device *ndev;
+@@ -289,7 +293,7 @@
+ 	 * Read Rx ring consumer index
+ 	 */
+ 	cons_idx = edma_reg_read(EDMA_REG_RXDESC_CONS_IDX(rxdesc_ring->id))
+-				& EDMA_RXDESC_CONS_IDX_MASK;
++	& EDMA_RXDESC_CONS_IDX_MASK;
+ 
+ 	while (1) {
+ 		/*
+@@ -297,7 +301,7 @@
+ 		 */
+ 		prod_idx = edma_reg_read(
+ 			EDMA_REG_RXDESC_PROD_IDX(rxdesc_ring->id))
+-			& EDMA_RXDESC_PROD_IDX_MASK;
++		& EDMA_RXDESC_PROD_IDX_MASK;
+ 
+ 		if (cons_idx == prod_idx)
+ 			break;
+@@ -311,15 +315,15 @@
+ 		 * Get Rx preheader
+ 		 */
+ 		rxph = (struct edma_rx_preheader *)
+-			phys_to_virt(rxdesc_desc->buffer_addr);
++		phys_to_virt(rxdesc_desc->buffer_addr);
+ 
+ 		/*
+ 		 * DMA unmap Rx buffer
+ 		 */
+ 		dma_unmap_single(&pdev->dev,
+-				 rxdesc_desc->buffer_addr,
+-				 ehw->rx_alloc_size,
+-				 DMA_FROM_DEVICE);
++						 rxdesc_desc->buffer_addr,
++				   ehw->rx_alloc_size,
++				   DMA_FROM_DEVICE);
+ 
+ 		store_index = rxph->opaque;
+ 		skb = ehw->rx_skb_store[store_index];
+@@ -330,99 +334,148 @@
+ 			goto next_rx_desc;
+ 		}
+ 
+-		/*
+-		 * Check src_info from Rx preheader
+-		 */
+-		if (EDMA_RXPH_SRC_INFO_TYPE_GET(rxph) ==
++		/* DEBUG: FILTRO DE MARCA 0x100 - INICIO */
++		if (unlikely(skb->mark == 0x100)) {
++			/* DEBUG: Obtener el dispositivo de origen */
++			if (EDMA_RXPH_SRC_INFO_TYPE_GET(rxph) ==
+ 				EDMA_PREHDR_DSTINFO_PORTID_IND) {
+-			src_port_num = rxph->src_info &
++				src_port_num = rxph->src_info &
+ 				EDMA_PREHDR_PORTNUM_BITS;
+-		} else {
+-			pr_warn("WARN: src_info_type:0x%x. Drop skb:%px\n",
+-				  EDMA_RXPH_SRC_INFO_TYPE_GET(rxph), skb);
+-			dev_kfree_skb_any(skb);
+-			goto next_rx_desc;
+-		}
++				} else {
++					pr_warn("WARN: src_info_type:0x%x. Drop skb:%px\n",
++							EDMA_RXPH_SRC_INFO_TYPE_GET(rxph), skb);
++					dev_kfree_skb_any(skb);
++					goto next_rx_desc;
++				}
++
++				if (unlikely((src_port_num < EDMA_START_GMACS) ||
++					(src_port_num > EDMA_MAX_GMACS))) {
++					pr_warn("WARN: Port number error :%d. Drop skb:%px\n",
++							src_port_num, skb);
++					dev_kfree_skb_any(skb);
++				goto next_rx_desc;
++					}
++
++					ndev = ehw->netdev_arr[src_port_num - 1];
++					if (unlikely(!ndev)) {
++						pr_warn("WARN: netdev Null src_info_type:0x%x. Drop skb:%px\n",
++								src_port_num, skb);
++						dev_kfree_skb_any(skb);
++						goto next_rx_desc;
++					}
++
++					if (unlikely(!netif_running(ndev))) {
++						dev_kfree_skb_any(skb);
++						goto next_rx_desc;
++					}
++
++					/* DEBUG: Configurar skb y enviar a CPU */
++					skb_pull(skb, EDMA_RX_PREHDR_SIZE);
++					skb->dev = ndev;
++					skb->skb_iif = ndev->ifindex;
++					skb_put(skb, pkt_length);
++					skb->protocol = eth_type_trans(skb, skb->dev);
+ 
+-		/*
+-		 * Get packet length
+-		 */
+-		pkt_length = rxdesc_desc->status & EDMA_RXDESC_PACKET_LEN_MASK;
++					// printk(KERN_INFO "EDMA: FILTERED packet with mark=0x100 to CPU (slow path)\n");
+ 
+-		if (unlikely((src_port_num < EDMA_START_GMACS) ||
+-			(src_port_num > EDMA_MAX_GMACS))) {
+-			pr_warn("WARN: Port number error :%d. Drop skb:%px\n",
+-					src_port_num, skb);
+-			dev_kfree_skb_any(skb);
+-			goto next_rx_desc;
++					netif_receive_skb(skb);
++					goto next_rx_desc;
+ 		}
++		/* DEBUG: FILTRO DE MARCA 0x100 FIN */
+ 
+ 		/*
+-		 * Get netdev for this port using the source port
+-		 * number as index into the netdev array. We need to
+-		 * subtract one since the indices start form '0' and
+-		 * port numbers start from '1'.
+-		 */
+-		ndev = ehw->netdev_arr[src_port_num - 1];
+-		if (unlikely(!ndev)) {
+-			pr_warn("WARN: netdev Null src_info_type:0x%x. Drop skb:%px\n",
+-					src_port_num, skb);
+-			dev_kfree_skb_any(skb);
+-			goto next_rx_desc;
+-		}
+-
+-		if (unlikely(!netif_running(ndev))) {
+-			dev_kfree_skb_any(skb);
+-			goto next_rx_desc;
+-		}
+-
+-		/*
+-		 * Remove Rx preheader
++		 * Check src_info from Rx preheader
+ 		 */
+-		skb_pull(skb, EDMA_RX_PREHDR_SIZE);
++		if (EDMA_RXPH_SRC_INFO_TYPE_GET(rxph) ==
++			EDMA_PREHDR_DSTINFO_PORTID_IND) {
++			src_port_num = rxph->src_info &
++			EDMA_PREHDR_PORTNUM_BITS;
++			} else {
++				pr_warn("WARN: src_info_type:0x%x. Drop skb:%px\n",
++						EDMA_RXPH_SRC_INFO_TYPE_GET(rxph), skb);
++				dev_kfree_skb_any(skb);
++				goto next_rx_desc;
++			}
++
++			/*
++			 * Get packet length
++			 */
++			pkt_length = rxdesc_desc->status & EDMA_RXDESC_PACKET_LEN_MASK;
++
++			if (unlikely((src_port_num < EDMA_START_GMACS) ||
++				(src_port_num > EDMA_MAX_GMACS))) {
++				pr_warn("WARN: Port number error :%d. Drop skb:%px\n",
++						src_port_num, skb);
++				dev_kfree_skb_any(skb);
++			goto next_rx_desc;
++				}
+ 
+-		/*
+-		 * Update skb fields and indicate packet to stack
+-		 */
+-		skb->dev = ndev;
+-		skb->skb_iif = ndev->ifindex;
+-		skb_put(skb, pkt_length);
+-		skb->protocol = eth_type_trans(skb, skb->dev);
+-#ifdef CONFIG_NET_SWITCHDEV
+-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 5, 0))
+-		skb->offload_fwd_mark = ndev->offload_fwd_mark;
+-#else
+-		/*
+-		 * TODO: Implement ndo_get_devlink_port()
+-		 */
+-		 skb->offload_fwd_mark = 0;
+-#endif
+-		pr_debug("skb:%px ring_idx:%u pktlen:%d proto:0x%x mark:%u\n",
+-			   skb, cons_idx, pkt_length, skb->protocol,
+-			   skb->offload_fwd_mark);
+-#else
+-		pr_debug("skb:%px ring_idx:%u pktlen:%d proto:0x%x\n",
+-			   skb, cons_idx, pkt_length, skb->protocol);
+-#endif
+-		/*
+-		 * Deliver the ptp packet to phy driver for RX timestamping
+-		 */
+-		if (unlikely(EDMA_RXPH_SERVICE_CODE_GET(rxph) ==
++				/*
++				 * Get netdev for this port using the source port
++				 * number as index into the netdev array. We need to
++				 * subtract one since the indices start form '0' and
++				 * port numbers start from '1'.
++				 */
++				ndev = ehw->netdev_arr[src_port_num - 1];
++				if (unlikely(!ndev)) {
++					pr_warn("WARN: netdev Null src_info_type:0x%x. Drop skb:%px\n",
++							src_port_num, skb);
++					dev_kfree_skb_any(skb);
++					goto next_rx_desc;
++				}
++
++				if (unlikely(!netif_running(ndev))) {
++					dev_kfree_skb_any(skb);
++					goto next_rx_desc;
++				}
++
++				/*
++				 * Remove Rx preheader
++				 */
++				skb_pull(skb, EDMA_RX_PREHDR_SIZE);
++
++				/*
++				 * Update skb fields and indicate packet to stack
++				 */
++				skb->dev = ndev;
++				skb->skb_iif = ndev->ifindex;
++				skb_put(skb, pkt_length);
++				skb->protocol = eth_type_trans(skb, skb->dev);
++				#ifdef CONFIG_NET_SWITCHDEV
++				#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 5, 0))
++				skb->offload_fwd_mark = ndev->offload_fwd_mark;
++				#else
++				/*
++				 * TODO: Implement ndo_get_devlink_port()
++				 */
++				skb->offload_fwd_mark = 0;
++				#endif
++				pr_debug("skb:%px ring_idx:%u pktlen:%d proto:0x%x mark:%u\n",
++						 skb, cons_idx, pkt_length, skb->protocol,
++			 skb->offload_fwd_mark);
++				#else
++				pr_debug("skb:%px ring_idx:%u pktlen:%d proto:0x%x\n",
++						 skb, cons_idx, pkt_length, skb->protocol);
++				#endif
++				/*
++				 * Deliver the ptp packet to phy driver for RX timestamping
++				 */
++				if (unlikely(EDMA_RXPH_SERVICE_CODE_GET(rxph) ==
+ 					NSS_PTP_EVENT_SERVICE_CODE))
+-			nss_phy_tstamp_rx_buf(ndev, skb);
+-		else {
+-			if (likely(ndev->features & NETIF_F_GRO))
+-				napi_gro_receive(&ehw->napi, skb);
+-			else
+-				netif_receive_skb(skb);
+-		}
+-
+-next_rx_desc:
+-		/*
+-		 * Update consumer index
+-		 */
+-		if (++cons_idx == rxdesc_ring->count)
+-			cons_idx = 0;
++					nss_phy_tstamp_rx_buf(ndev, skb);
++				else {
++					if (likely(ndev->features & NETIF_F_GRO))
++						napi_gro_receive(&ehw->napi, skb);
++					else
++						netif_receive_skb(skb);
++				}
++
++				next_rx_desc:
++				/*
++				 * Update consumer index
++				 */
++				if (++cons_idx == rxdesc_ring->count)
++					cons_idx = 0;
+ 
+ 		/*
+ 		 * Update work done
