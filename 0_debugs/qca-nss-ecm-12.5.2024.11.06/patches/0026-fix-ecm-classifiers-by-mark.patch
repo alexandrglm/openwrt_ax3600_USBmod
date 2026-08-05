@@ -454,7 +454,7 @@ diff -Naur "a/ecm_classifier_default.c" b/ecm_classifier_default.c
 +					mark_pr.accel_mode == ECM_CLASSIFIER_ACCELERATION_MODE_ACCEL) {
 +					// printk(KERN_INFO "MARK: DEFAULT sees MARK says ACCEL\n");
 +					} else {
-+						printk(KERN_INFO "MARK: DEFAULT sees MARK says DONT_CARE or MAYBE\n");
++						// printk(KERN_INFO "MARK: DEFAULT sees MARK says DONT_CARE or MAYBE\n");
 +					}
 +		} else {
 +			// printk(KERN_INFO "DEFAULT: MARK classifier NOT FOUND on connection\n");
